@@ -665,6 +665,14 @@ export async function truth(base) {
   out.sunOnOpposite = shareN ? sunSum / shareN : NaN;
   out.sunHitFrac = shareN ? sunHit / shareN : NaN;
   out.hr = hr; out.w = w; out.h = h; out.cap = cap; out.gcls = gcls; out.height = height;
+  // #36: is each window a flat fill? glaz-probe's paneStructure over the SAME above-horizon
+  // glass pixels the ratios above are taken on, in the same scene-linear luminance.
+  const lum = new Float64Array(w * h).fill(NaN);
+  for (let i = 0; i < w * h; i++) {
+    if (gcls[i] !== 1) continue;
+    lum[i] = Y(a2l[png.data[i * ch]], a2l[png.data[i * ch + 1]], a2l[png.data[i * ch + 2]]);
+  }
+  out.structure = gp.paneStructure(gcls, lum, w, h, { want: 1, rowMax: hr });
   return out;
 }
 
@@ -990,7 +998,11 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       console.log(`  SUN     on the wall opposite: mean cos*lit ${f3(t.sunOnOpposite)}   `
         + `${(100 * t.sunHitFrac).toFixed(0)}% of pane px see a sunlit wall opposite`
         + (t.sunHitFrac < 0.02 ? '   <-- the sun term cannot move this frame either way' : ''));
+      const S = t.structure;
+      console.log(`  PANES   ${S.panes} above the horizon   modulation p25/p50/p75 ${f3(S.modP25, 2)}/${f3(S.modMedian, 2)}/${f3(S.modP75, 2)}`
+        + `   ${Number.isFinite(S.flatFrac) ? (100 * S.flatFrac).toFixed(0) : 'n/a'}% flat (under 1.25)   cv across panes ${f3(S.cv)}`);
       T.push({ name, glassBR: t.glassBR, wallBR: t.wallBR, shift: t.shift, paneWall: t.paneWall,
+        panes: S.panes, modulation: S.modMedian, flatFrac: S.flatFrac, paneCV: S.cv,
         cityShare: t.cityShare, skyDominatedFrac: t.skyDominatedFrac,
         envBR: t.cap.meta.envProfile, irrBR: t.cap.meta.irrProfile,
         panePx: t.glass.n, wallPx: t.wall.n, glass: [t.glass.r, t.glass.g, t.glass.b], wall: [t.wall.r, t.wall.g, t.wall.b] });
@@ -1011,6 +1023,10 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     }
     const st = summarise(T, 'GROUND TRUTH');
     console.log(`\n${st.text}`);
+    const med = (k) => median(T.map((r) => r[k]));
+    st.structure = { modulation: med('modulation'), flatFrac: med('flatFrac'), paneCV: med('paneCV'), panes: med('panes') };
+    console.log(`${'GROUND TRUTH structure'.padEnd(30)} n=${String(T.length).padStart(3)}  modulation med ${f3(st.structure.modulation)}  `
+      + `flat panes med ${Number.isFinite(st.structure.flatFrac) ? (100 * st.structure.flatFrac).toFixed(0) : 'n/a'}%  cv across panes med ${f3(st.structure.paneCV)}`);
     let out = { truth: st, truthRows: T };
     if (both && L.length) {
       const sl = summarise(L, 'DETECTOR on the same frames');

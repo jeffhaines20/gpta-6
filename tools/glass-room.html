@@ -1,0 +1,283 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>glass-room</title>
+<!--
+  THE ROOM BEHIND THE FACADE GLASS - the gate page for BACKLOG #36 (src/materials.js applyGlassRoom,
+  src/facades.js glassRoomGeometry), driven by tools/glass-room.mjs.
+
+  One wall per recipe, built the way the streamer builds one (UVs in metres along the wall and up it,
+  a white vertex colour, the outward normal), drawn with the REAL memoised facadeMaterial(recipe), lit
+  by a sun and a blue sky environment, and seen from street height looking up. Every render goes into
+  a FLOAT target with no tone mapping, so each number is scene-linear radiance and an "unchanged"
+  pixel is unchanged to the bit. A pass with the material's own packed roughness/metalness map marks
+  the glass texels - pane-audit's test, which is also the shader's mask.
+
+  Arms per recipe, all off ONE page and ONE camera:
+    ship    the build as shipped (#36 on at its derived levels)
+    off     the same material with setGlassRoom({ room: 0, mirror: 1, rough: 1 })
+    pre     a REPLICA of facadeMaterial before #36: the same maps on a MeshStandardMaterial with
+            applyGlazingEnv and nothing else. off must equal it bit for bit.
+    k0      the shipped levers with the room's light at zero, so ship - k0 IS the room's light: the
+            two differ in that one term and the specular in both is the same
+    mirror  the mirror levers alone (room 0, F0 and roughness at their shipped values)
+    dark    ship with the sun and the environment off: a room lit by its window is black
+    shipUp, k0Up   ship and k0 with the wall AND the camera moved up 7.3 m, a non-multiple of every
+            recipe's floor height. The room is registered to the texture's own floor bands, so its
+            light must not move; one computed off world height would.
+
+  ?debug=1 publishes the frames as well as the statistics.
+-->
+<style>html,body{margin:0;background:#000}canvas{display:block}</style>
+<script type="module">
+import * as THREE from '../vendor/three.module.min.js';
+import { facadeMaterial, facadeMaps, RECIPES, glassRoomGeometry } from '../src/facades.js';
+import { applyGlazingEnv, setGlassRoom, glassRoomState, GLASS_ROOM_U } from '../src/materials.js';
+
+const W = 320, H = 240;
+const q = new URLSearchParams(location.search);
+const DEBUG = q.get('debug') === '1';
+const RECIPE_LIST = (q.get('recipes') ?? 'retailStrip,midOffice,bayTower,warehouse').split(',');
+const UP = 7.3;
+try {
+  const renderer = new THREE.WebGLRenderer({ antialias: false, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(1);
+  renderer.setSize(W, H);
+  renderer.toneMapping = THREE.NoToneMapping;
+  document.body.appendChild(renderer.domElement);
+
+  // A blue noon sky: whiter at the horizon, deep blue overhead, a grey ground. Radiances in the same
+  // ratio the district's chrome ball reads (horizon near the brightest), at a scale where a sunlit
+  // wall and the sky are both well inside float range.
+  const skyScene = new THREE.Scene();
+  const skyGeo = new THREE.SphereGeometry(50, 48, 24);
+  const cols = [];
+  const pos = skyGeo.getAttribute('position');
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i) / 50;
+    const c = y >= 0
+      ? new THREE.Color().lerpColors(new THREE.Color(0.80, 0.86, 0.95), new THREE.Color(0.22, 0.38, 0.82), Math.pow(y, 0.55))
+      : new THREE.Color(0.20, 0.19, 0.17);
+    cols.push(c.r, c.g, c.b);
+  }
+  skyGeo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+  skyScene.add(new THREE.Mesh(skyGeo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
+  const env = new THREE.PMREMGenerator(renderer).fromScene(skyScene, 0.02).texture;
+
+  const scene = new THREE.Scene();
+  scene.environment = env;
+  scene.background = new THREE.Color(0, 0, 0);
+  // A high sun, warm, raking the wall the way noon's does a street facade.
+  const sun = new THREE.DirectionalLight(new THREE.Color(1.0, 0.95, 0.86), 3.2);
+  scene.add(sun); scene.add(sun.target);
+  const bounce = new THREE.HemisphereLight(0x9fb4d6, 0x6b6455, 0.35);
+  scene.add(bounce);
+
+  const camera = new THREE.PerspectiveCamera(55, W / H, 0.1, 400);
+  const rt = new THREE.WebGLRenderTarget(W, H, { type: THREE.FloatType });
+  const rt8 = new THREE.WebGLRenderTarget(W, H, { type: THREE.UnsignedByteType });
+
+  /** One wall of a recipe: two tiles wide, two tiles tall, UVs in metres like the streamer's. */
+  function wallFor(name, mat, baseY) {
+    const rec = RECIPES[name];
+    const g = glassRoomGeometry(rec);
+    const w = 2 * rec.tileU, h = Math.min(2 * g.tileV, 24);
+    const geo = new THREE.BufferGeometry();
+    const x0 = -w / 2, x1 = w / 2;
+    geo.setAttribute('position', new THREE.Float32BufferAttribute([x0, baseY, 0, x1, baseY, 0, x1, baseY + h, 0, x0, baseY + h, 0], 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute([0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], 3));
+    // u starts off a tile boundary on purpose, as the streamer's centred u0 does.
+    const u0 = -((w % rec.tileU) / 2) + 0.37;
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute([u0, 0, u0 + w, 0, u0 + w, h, u0, h], 2));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], 3));
+    geo.setIndex([0, 1, 2, 0, 2, 3]);
+    return { mesh: new THREE.Mesh(geo, mat), h, w };
+  }
+  /** The facade material exactly as facadeMaterial built it BEFORE #36. */
+  function replicaFor(name) {
+    const m = facadeMaps(name);
+    const glazed = new THREE.MeshStandardMaterial({
+      name: `replica:${name}`, map: m.map, roughnessMap: m.rmMap, metalnessMap: m.rmMap,
+      roughness: 1, metalness: 1, emissiveMap: m.emissive.night, emissive: 0xffffff,
+      emissiveIntensity: 0, vertexColors: true,
+    });
+    return applyGlazingEnv(glazed, { glassTexelsOnly: true });
+  }
+  function rmMaterialFor(name) {
+    const tex = facadeMaps(name).rmMap.clone();
+    tex.colorSpace = THREE.NoColorSpace; tex.needsUpdate = true;
+    const m = new THREE.MeshBasicMaterial({ map: tex, toneMapped: false });
+    return m;
+  }
+
+  const SHIP = glassRoomState();
+  const frames = {};
+  const read = (target) => {
+    const buf = new Float32Array(W * H * 4);
+    renderer.readRenderTargetPixels(target, 0, 0, W, H, buf);
+    return buf;
+  };
+  const aimAt = (baseY, wall) => {
+    camera.position.set(1.3, baseY + 2.5, 15.0);
+    camera.lookAt(0, baseY + Math.min(wall.h * 0.55, 13), 0);
+    camera.updateMatrixWorld();
+    sun.position.set(-6, 30, 9); sun.target.position.set(0, 0, 0); sun.target.updateMatrixWorld();
+  };
+  const render = (wall, lit = true) => {
+    scene.environmentIntensity = lit ? 1 : 0;
+    sun.visible = lit; bounce.visible = lit;
+    scene.add(wall.mesh);
+    renderer.setRenderTarget(rt); renderer.setClearColor(0x000000, 1); renderer.clear();
+    renderer.render(scene, camera);
+    const out = read(rt);
+    renderer.setRenderTarget(null);
+    scene.remove(wall.mesh);
+    scene.environmentIntensity = 1; sun.visible = true; bounce.visible = true;
+    return out;
+  };
+
+  const report = { ship: SHIP, recipes: {}, w: W, h: H, programs: null };
+  for (const name of RECIPE_LIST) {
+    const rec = RECIPES[name];
+    const mat = facadeMaterial(name, { time: 'noon' });
+    const geoU = mat.userData.glassRoom;
+    const r = { geometry: glassRoomGeometry(rec),
+      uniforms: geoU ? { geo: geoU.geo.value.toArray(), dim: geoU.dim.value.toArray() } : null,
+      tags: (mat.userData.veranoTags ?? []).join('|') };
+    // The glass mask, off the material's own packed map.
+    const wallRM = wallFor(name, rmMaterialFor(name), 0);
+    aimAt(0, wallRM);
+    scene.add(wallRM.mesh);
+    // Cleared with ALPHA 0, so a pixel the wall did not cover reads as nothing rather than as a
+    // black texel - which the glass test would call wall.
+    renderer.setRenderTarget(rt8); renderer.setClearColor(0x000000, 0); renderer.clear();
+    renderer.render(scene, camera);
+    const rm = new Uint8Array(W * H * 4);
+    renderer.readRenderTargetPixels(rt8, 0, 0, W, H, rm);
+    renderer.setRenderTarget(null);
+    scene.remove(wallRM.mesh);
+    // 0 nothing, 1 glass (pane-audit's test), 2 wall, 3 the edge between them. WALL is "the shader's
+    // own mask is exactly zero here": its glass mask is (1 - smoothstep(0.34, 0.44, roughness)) *
+    // smoothstep(0.34, 0.44, metalness), zero wherever roughness >= 0.44 or metalness <= 0.34, and
+    // this pass samples the same texture through the same filter. The first version called every
+    // non-glass texel wall and read 0.05-0.10 of movement on it: filtered texels at a pane's edge,
+    // where the mask is partly on, which is the shader doing what it says rather than a leak.
+    const cls = new Uint8Array(W * H);
+    for (let i = 0; i < W * H; i++) {
+      if (rm[i * 4 + 3] === 0) continue;
+      const g = rm[i * 4 + 1], b = rm[i * 4 + 2];
+      cls[i] = (g < 96 && b > 100) ? 1 : (g >= 114 || b <= 85) ? 2 : 3;
+    }
+
+    const wall = wallFor(name, mat, 0);
+    aimAt(0, wall);
+    setGlassRoom({ room: SHIP.room, mirror: SHIP.mirror, rough: SHIP.rough, k: SHIP.k });
+    const ship = render(wall);
+    const dark = render(wall, false);
+    setGlassRoom({ room: SHIP.room, mirror: SHIP.mirror, rough: SHIP.rough, k: 0 });
+    const k0 = render(wall);
+    setGlassRoom({ room: 0, mirror: SHIP.mirror, rough: SHIP.rough, k: SHIP.k });
+    const mirror = render(wall);
+    setGlassRoom({ room: 0, mirror: 1, rough: 1, k: SHIP.k });
+    const off = render(wall);
+    const offRead = glassRoomState();
+    const pre = render(wallFor(name, replicaFor(name), 0));
+    const wallUp = wallFor(name, mat, UP);
+    aimAt(UP, wallUp);
+    setGlassRoom({ room: SHIP.room, mirror: SHIP.mirror, rough: SHIP.rough, k: SHIP.k });
+    const shipUp = render(wallUp);
+    setGlassRoom({ room: SHIP.room, mirror: SHIP.mirror, rough: SHIP.rough, k: 0 });
+    const k0Up = render(wallUp);
+    setGlassRoom({ room: SHIP.room, mirror: SHIP.mirror, rough: SHIP.rough, k: SHIP.k });
+
+    // ---- statistics, all in scene-linear float
+    const Y = (b, i) => 0.2126 * b[i * 4] + 0.7152 * b[i * 4 + 1] + 0.0722 * b[i * 4 + 2];
+    let glassPx = 0, wallPx = 0;
+    const st = { offVsPreMax: 0, offVsPreDiffer: 0, shipWallMax: 0, shipWallDiffer: 0, glassChanged: 0,
+      mirrorWallMax: 0, mirrorGlassDrop: 0, darkGlassMax: 0, darkGlassFinite: true,
+      upRoomMaxRel: 0, roomSum: [0, 0, 0], roomLumMean: 0, nonFinite: 0 };
+    const roomLum = new Float64Array(W * H).fill(NaN);
+    let roomN = 0, mirGlass = 0, offGlass = 0;
+    for (let i = 0; i < W * H; i++) {
+      for (let c = 0; c < 4; c++) {
+        const d = Math.abs(off[i * 4 + c] - pre[i * 4 + c]);
+        if (!Number.isFinite(off[i * 4 + c]) || !Number.isFinite(ship[i * 4 + c])) st.nonFinite++;
+        if (d > st.offVsPreMax) st.offVsPreMax = d;
+        if (d !== 0) st.offVsPreDiffer++;
+      }
+      if (cls[i] === 2) {
+        wallPx++;
+        for (let c = 0; c < 3; c++) {
+          const d = Math.abs(ship[i * 4 + c] - off[i * 4 + c]);
+          if (d > st.shipWallMax) st.shipWallMax = d;
+          if (d !== 0) st.shipWallDiffer++;
+          st.mirrorWallMax = Math.max(st.mirrorWallMax, Math.abs(mirror[i * 4 + c] - off[i * 4 + c]));
+        }
+      } else if (cls[i] === 1) {
+        glassPx++;
+        if (Y(ship, i) !== Y(off, i)) st.glassChanged++;
+        mirGlass += Y(mirror, i); offGlass += Y(off, i);
+        const dk = Math.max(dark[i * 4], dark[i * 4 + 1], dark[i * 4 + 2]);
+        if (!Number.isFinite(dk)) st.darkGlassFinite = false; else st.darkGlassMax = Math.max(st.darkGlassMax, dk);
+        // The room's own light: ship - k0, the one term those two differ in.
+        const rr = [0, 1, 2].map((c) => ship[i * 4 + c] - k0[i * 4 + c]);
+        const ru = [0, 1, 2].map((c) => shipUp[i * 4 + c] - k0Up[i * 4 + c]);
+        st.roomSum[0] += rr[0]; st.roomSum[1] += rr[1]; st.roomSum[2] += rr[2];
+        const l = 0.2126 * rr[0] + 0.7152 * rr[1] + 0.0722 * rr[2];
+        const lu = 0.2126 * ru[0] + 0.7152 * ru[1] + 0.0722 * ru[2];
+        roomLum[i] = l; roomN++;
+        st.upRoomMaxAbs = Math.max(st.upRoomMaxAbs ?? 0, Math.abs(l - lu));
+      }
+    }
+    st.mirrorGlassDrop = offGlass > 0 ? mirGlass / offGlass : null;
+    st.roomLumMean = roomN ? roomLum.reduce((a, v) => a + (Number.isFinite(v) ? v : 0), 0) / roomN : 0;
+    // Against the frame's MEAN room light, not each pixel's own: the room is ship - k0, and where it
+    // is a hair of a bright reflection the subtraction's rounding is most of it. Per pixel that read
+    // 1e-3 on a build where nothing moved; a room hung off world height moves by its own size.
+    st.upRoomMaxRel = st.roomLumMean > 0 ? (st.upRoomMaxAbs ?? 0) / st.roomLumMean : null;
+    st.roomBR = st.roomSum[0] > 0 ? st.roomSum[2] / st.roomSum[0] : null;
+    // Is each pane's room a flat fill? 4-connected glass components, p90/p10 of the room's light.
+    const seen = new Uint8Array(W * H), stack = new Int32Array(W * H);
+    const mods = [], means = [];
+    for (let s0 = 0; s0 < W * H; s0++) {
+      if (seen[s0] || cls[s0] !== 1) continue;
+      let sp = 0; stack[sp++] = s0; seen[s0] = 1; const vals = [];
+      while (sp) {
+        const p = stack[--sp]; if (Number.isFinite(roomLum[p])) vals.push(roomLum[p]);
+        const x = p % W;
+        for (const nb of [x > 0 ? p - 1 : -1, x < W - 1 ? p + 1 : -1, p - W, p + W]) {
+          if (nb >= 0 && nb < W * H && !seen[nb] && cls[nb] === 1) { seen[nb] = 1; stack[sp++] = nb; }
+        }
+      }
+      if (vals.length < 40) continue;
+      vals.sort((a, b) => a - b);
+      const p10 = vals[Math.floor(0.1 * (vals.length - 1))], p90 = vals[Math.floor(0.9 * (vals.length - 1))];
+      mods.push(p90 / Math.max(p10, 1e-9));
+      means.push(vals.reduce((a, b) => a + b, 0) / vals.length);
+    }
+    mods.sort((a, b) => a - b);
+    const mu = means.reduce((a, b) => a + b, 0) / Math.max(1, means.length);
+    st.panes = mods.length;
+    st.roomModMedian = mods.length ? mods[Math.floor(0.5 * (mods.length - 1))] : null;
+    st.roomPaneCV = means.length ? Math.sqrt(means.reduce((a, b) => a + (b - mu) ** 2, 0) / means.length) / Math.max(mu, 1e-9) : null;
+    r.glassPx = glassPx; r.wallPx = wallPx; r.stats = st; r.offRead = offRead;
+    report.recipes[name] = r;
+    if (DEBUG) frames[name] = { ship, off, pre, k0, mirror, dark, shipUp, k0Up, cls };
+  }
+  // WHICH PROGRAM EACH RECIPE'S MATERIAL DRAWS WITH, by identity. Counting cache keys that mention
+  // glassRoom read 2 for one program: the dark arm hides the sun, and three compiles a second
+  // variant for zero directional lights. The question is whether RECIPES share one, so it is asked of
+  // the materials, after the last render - a lit one - in the same light state for all of them.
+  const progs = (renderer.info.programs ?? []).map((p) => p.cacheKey ?? '');
+  const used = new Set(RECIPE_LIST.map((n) => renderer.properties.get(facadeMaterial(n, { time: 'noon' })).currentProgram));
+  report.programs = { glassRoom: used.has(undefined) ? null : used.size, total: progs.length,
+    keysMentioning: progs.filter((k) => k.includes('glassRoom')).length };
+  report.shaderErrors = window.__shaderErrors ?? [];
+  setGlassRoom({ room: SHIP.room, mirror: SHIP.mirror, rough: SHIP.rough, k: SHIP.k });
+  report.restored = glassRoomState();
+  report.uniformObjects = Object.keys(GLASS_ROOM_U);
+  window.__report = report;
+  if (DEBUG) window.__frames = frames;
+} catch (e) {
+  window.__report = { error: `${e.message}\n${e.stack}` };
+}
+</script>

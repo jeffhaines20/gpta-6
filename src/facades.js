@@ -25,7 +25,7 @@
 // 1/tileU x 1/tileV and every building of that recipe shares one texture.
 
 import * as THREE from '../vendor/three.module.min.js';
-import { applyGlazingEnv, applyStorefrontCoating } from './materials.js';
+import { applyGlazingEnv, applyStorefrontCoating, applyGlassRoom } from './materials.js';
 
 // ---------------------------------------------------------------- determinism
 // Buildings must look the same on every load and in every session, so every
@@ -2042,6 +2042,39 @@ export function trimMaps() {
 }
 
 /**
+ * #36: THE ROOM BEHIND A RECIPE'S GLASS, in the metres of the facade texture's own v.
+ *
+ * Read off the recipe's window layout rather than chosen, because the only thing a room
+ * has to get right to read as a room is where its floor and ceiling are against the window
+ * you see it through. buildPanel draws floor band rr from the top of a 1024 px panel, and the
+ * canvas texture is flipped, so in v the bands sit on whole multiples of floorM and a
+ * window's head is (1 - win.top) * floorM above its band's foot, its sill
+ * (1 - win.top - win.h) * floorM. The ceiling goes 0.12 m above the head - a soffit, not
+ * a slab in the middle of the pane - and the floor 0.10 m above the band's foot, the slab
+ * top, which is under every sill in RECIPES (the lowest, bayTower's, is 0.91 m up).
+ *
+ * The plan is the coarse half and says so: rooms two bays wide (an office's partition every
+ * other mullion, a flat's room per pair of windows) and 6 m deep, the depth daylight
+ * reaches into a side-lit room before it is gone. Neither moves a reading this round
+ * measures - both are parallax, not level - and both are uniforms, so a round that wants
+ * them per recipe changes this function and nothing else.
+ */
+export function glassRoomGeometry(rec) {
+  const fm = rec.floorM;
+  const head = (1 - rec.win.top) * fm;
+  const sill = (1 - rec.win.top - rec.win.h) * fm;
+  return {
+    floorM: fm,
+    head, sill,
+    ceiling: Math.min(head + 0.12, fm - 0.02),
+    floor: 0.10,
+    tileV: rec.floors * fm,
+    width: (2 * rec.tileU) / rec.rhythm.length,
+    depth: 6.0,
+  };
+}
+
+/**
  * Optional material factory. Memoised by recipe, so a caller physically cannot
  * end up with a material per building — the failure mode this project's
  * performance contract exists to prevent.
@@ -2069,7 +2102,14 @@ export function facadeMaterial(name, { time = 'night' } = {}) {
     // Measured on a 54 m tower: without this the pane reflected the bright band
     // of sky just above the horizon at EVERY floor and the elevation read
     // brightest at the pavement. See applyGlazingEnv in src/materials.js.
-    return applyGlazingEnv(glazed, { glassTexelsOnly: true });
+    applyGlazingEnv(glazed, { glassTexelsOnly: true });
+    // #36: a room behind the glass, registered to THIS recipe's floor bands. See
+    // glassRoomGeometry above and applyGlassRoom in src/materials.js.
+    const g = glassRoomGeometry(m.recipe);
+    return applyGlassRoom(glazed, {
+      geo: { value: new THREE.Vector4(g.floorM, g.floor, g.ceiling, g.tileV) },
+      dim: { value: new THREE.Vector2(g.width, g.depth) },
+    });
   });
   setFacadeTime(name, time);
   return mat;

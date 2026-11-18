@@ -2514,6 +2514,187 @@ float geHash( vec2 c ) { return fract( sin( dot( c, vec2( 91.7, 47.3 ) ) ) * 246
   });
 }
 
+// ------------------------------------------- glazing: what is BEHIND the glass
+// BACKLOG #36. The facade atlas's glass is a coated mirror - F0 0.20-0.30 at
+// metalness 0.80-0.88 (facades.js drawOpening) - and the rest of it, the 12-20%
+// that metalness leaves to the diffuse term, is the COATING's colour lit by the
+// irradiance the pane stands in: a flat fill the colour of the glass, lit by a
+// blue noon sky. Nothing in it says a room is there. Two levers, kept separate so
+// a sweep can isolate them, both on the same glass-texel mask applyGlazingEnv
+// uses so the two patches agree about what a pane IS:
+//
+//   uGlassMirror   scales the pane's F0 (specularColor) and nothing else, so F90
+//                  - the Fresnel rise to a mirror at grazing - is untouched.
+//                  1 is the build before #36.
+//   uGlassRough    scales the pane's roughness - the "cleaner" half of "a stronger,
+//                  cleaner mirror". 1 is the build before #36.
+//   uGlassRoom     replaces the pane's flat diffuse with a ROOM, ray-cast per
+//                  fragment into a box behind the facade: a ceiling, a floor, a
+//                  back wall and the partitions either side, registered to the
+//                  facade texture's own floor bands so the ceiling sits above the
+//                  painted window head and the floor below the sill. 0 is the
+//                  build before #36.
+//
+// THE ROOM IS LIT BY THE WINDOW, NOT PAINTED. Each surface it hits returns
+// albedo * E_in * K * exp(-depth / 2.4 m) / PI, where E_in is the exterior
+// irradiance on the pane itself - sky (iblIrradiance), the district bounce
+// (irradiance) and the direct lights recovered from directDiffuse, shadows and
+// all - so a room is dark when its window is, warm when the sun is low and in it,
+// and black at night, where the facade's own lit-window emissive takes over. The
+// light comes back out through the glass times a transmission and (1 - F), the
+// same single-scatter Fresnel three's environment BRDF reflects with, so nothing
+// is counted twice at grazing. The transmission carries the coating's own
+// albedo, which keeps each recipe's tint - bayTower's cool glass stays cool -
+// and darkens the painted mullions and the reveal's soffit shade for free.
+//
+// BIT FOR BIT AT THE OFF ARM, BY CONSTRUCTION: `1 - m * (1 - 1)` is exactly 1,
+// and the room is computed only inside `if ( gi > 0.0 )`, so with uGlassRoom 0
+// not one instruction of it runs and no NaN of it can reach a pixel. No
+// derivative is taken inside the branch (none is needed: the wall's tangent is
+// cross(up, N), the room's height is the texture's own v in metres).
+//
+// PER-RECIPE NUMBERS ARE UNIFORMS, AND THEY HAVE TO BE. Every facade recipe's
+// material carries the same program cache key, so three compiles the FIRST
+// recipe's source and hands that program to all the others: a floor height baked
+// into the source as a constant would silently be retailStrip's on every tower.
+// The room's geometry rides in on uGlassRoomGeo / uGlassRoomDim, one object per
+// material, and the three levers are shared objects so one assignment switches
+// the district.
+export const GLASS_ROOM_U = {
+  uGlassRoom: { value: 1 },
+  uGlassMirror: { value: 1 },
+  uGlassRough: { value: 1 },
+  uGlassRoomK: { value: 0.15 },
+  // Visible transmittance of the stock: a tinted or low-e unit passes 0.4-0.7.
+  uGlassRoomT: { value: 0.55 },
+};
+const GLASS_ROOM_SEAM_PHYS = '#include <lights_physical_fragment>';
+const GLASS_ROOM_SEAM_END = '#include <lights_fragment_end>';
+
+/**
+ * @param {THREE.Material} material  a facade-atlas material (glass on smooth metallic texels)
+ * @param {{geo:{value:THREE.Vector4}, dim:{value:THREE.Vector2}}} room  this recipe's room:
+ *   geo = (floor height, room floor above the band, ceiling above the band, tile height) in
+ *   metres of the texture's v; dim = (room width along the wall, room depth).
+ */
+export function applyGlassRoom(material, room, opts = {}) {
+  const n = (v) => Number(v).toFixed(4);
+  const mask = `( 1.0 - smoothstep( ${n(opts.roughLo ?? 0.34)}, ${n(opts.roughHi ?? 0.44)}, roughnessFactor ) )`
+    + ` * smoothstep( ${n(opts.metalLo ?? 0.34)}, ${n(opts.metalHi ?? 0.44)}, metalnessFactor )`;
+  // The room's height is the map's own v, so a material with no map has no floor bands
+  // to register a room to. Refused here, where the caller is named, rather than as a
+  // shader that compiles the room out and renders the build before #36 under a tag
+  // that says otherwise.
+  if (!material.map) throw new Error(`applyGlassRoom: ${material.name} has no map to register a room to`);
+  material.userData.glassRoom = room;
+  return patch(material, 'glassRoom', (shader) => {
+    for (const [k, v] of Object.entries(GLASS_ROOM_U)) shader.uniforms[k] = v;
+    shader.uniforms.uGlassRoomGeo = room.geo;
+    shader.uniforms.uGlassRoomDim = room.dim;
+    // THE SEAMS ARE ASSERTED, NOT HOPED FOR: a replace that matches nothing renders
+    // a perfectly good facade and a sweep that concludes the levers do nothing.
+    for (const seam of [GLASS_ROOM_SEAM_PHYS, GLASS_ROOM_SEAM_END]) {
+      const hits = shader.fragmentShader.split(seam).length - 1;
+      if (hits !== 1) throw new Error(`applyGlassRoom: ${seam} occurs ${hits} times in ${material.name}, want 1`);
+    }
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+uniform float uGlassRoom;
+uniform float uGlassMirror;
+uniform float uGlassRough;
+uniform float uGlassRoomK;
+uniform float uGlassRoomT;
+uniform vec4 uGlassRoomGeo;
+uniform vec2 uGlassRoomDim;
+float grHash( vec2 c ) { return fract( sin( dot( c, vec2( 41.3, 289.1 ) ) ) * 15731.743 ); }`)
+      .replace(GLASS_ROOM_SEAM_PHYS, `${GLASS_ROOM_SEAM_PHYS}
+{
+  // #36, the mirror's strength: F0 only, glass texels only, exactly 1 at uGlassMirror 1.
+  vec3 grN0 = inverseTransformDirection( nonPerturbedNormal, viewMatrix );
+  float grMask0 = ${mask} * ( 1.0 - smoothstep( 0.55, 0.85, abs( grN0.y ) ) );
+  material.specularColor *= 1.0 - grMask0 * ( 1.0 - uGlassMirror );
+  material.roughness = min( material.roughness * ( 1.0 - grMask0 * ( 1.0 - uGlassRough ) ), 1.0 );
+}`)
+      .replace(GLASS_ROOM_SEAM_END, `${GLASS_ROOM_SEAM_END}
+#ifdef USE_MAP
+{
+  vec3 grN = inverseTransformDirection( nonPerturbedNormal, viewMatrix );
+  float gi = uGlassRoom * ${mask} * ( 1.0 - smoothstep( 0.55, 0.85, abs( grN.y ) ) );
+  if ( gi > 0.0 ) {
+    // The eye ray and where it lands, from built-ins only (applyGlazingEnv's construction).
+    vec3 grDir = inverseTransformDirection( geometryPosition, viewMatrix );
+    vec3 grWorld = cameraPosition + grDir * length( geometryPosition );
+    vec3 grT = cross( vec3( 0.0, 1.0, 0.0 ), grN );
+    float grTl = length( grT );
+    grT = grTl > 1e-3 ? grT / grTl : vec3( 1.0, 0.0, 0.0 );
+    // The ray in the room's frame: into the wall, along it, and up.
+    float dn = max( - dot( grDir, grN ), 0.02 );
+    float ds = dot( grDir, grT );
+    float dy = grDir.y;
+    float sP = dot( grWorld, grT );
+    // Height in the TEXTURE's metres, so the room's floor and ceiling are where the
+    // painted window's band is, whatever the building stands on.
+    float vP = vMapUv.y * uGlassRoomGeo.w;
+    float fm = uGlassRoomGeo.x;
+    float band = floor( vP / fm );
+    float yLo = band * fm + uGlassRoomGeo.y;
+    float yHi = band * fm + uGlassRoomGeo.z;
+    float rw = uGlassRoomDim.x;
+    float cell = floor( sP / rw );
+    float tB = uGlassRoomDim.y / dn;
+    float tV = dy > 1e-4 ? max( yHi - vP, 0.0 ) / dy
+      : ( dy < -1e-4 ? max( vP - yLo, 0.0 ) / ( - dy ) : 1e6 );
+    float tS = ds > 1e-4 ? max( ( cell + 1.0 ) * rw - sP, 0.0 ) / ds
+      : ( ds < -1e-4 ? max( sP - cell * rw, 0.0 ) / ( - ds ) : 1e6 );
+    float t = min( tB, min( tV, tS ) );
+    float depth = t * dn;
+    float hitY = vP + t * dy - yLo;
+    // What the ray lands on. Plain painted finishes: a white ceiling, warm walls, a
+    // dark floor, and a furniture line along the walls below desk height.
+    vec3 alb = vec3( 0.50, 0.45, 0.37 );
+    if ( t == tV ) alb = dy > 0.0 ? vec3( 0.70, 0.68, 0.63 ) : vec3( 0.20, 0.15, 0.11 );
+    else alb *= mix( 0.45, 1.0, step( 0.85, hitY ) );
+    // Rooms differ: a per-room level, so a row of windows is a row of rooms.
+    float grH = grHash( vec2( cell, band ) );
+    alb *= 0.45 + 0.8 * grH;
+    // The light a room gets is the light its window gets.
+    vec3 grEdir = reflectedLight.directDiffuse * PI / max( material.diffuseColor, vec3( 1e-5 ) );
+    vec3 grEin = iblIrradiance + irradiance + grEdir;
+    vec3 grRoom = alb * grEin * ( uGlassRoomK * exp( - depth / 2.4 ) ) * RECIPROCAL_PI;
+    // Out through the glass: the coating's own colour as its tint, less what it reflects.
+    vec2 grFab = DFGApprox( geometryNormal, geometryViewDir, material.roughness );
+    vec3 grFr = material.specularColor * grFab.x + material.specularF90 * grFab.y;
+    vec3 grTint = clamp( diffuseColor.rgb / 0.25, 0.0, 1.5 );
+    vec3 grThrough = uGlassRoomT * grTint * max( 1.0 - grFr, 0.0 ) * grRoom;
+    reflectedLight.directDiffuse *= 1.0 - gi;
+    reflectedLight.indirectDiffuse = reflectedLight.indirectDiffuse * ( 1.0 - gi ) + gi * grThrough;
+  }
+}
+#endif`);
+  });
+}
+
+/**
+ * The district's switch for #36, one call for every facade material (the levers are shared
+ * uniform objects). Returns what the uniforms now HOLD, read back, so an A/B arm records what it
+ * reached rather than what it asked for.
+ */
+export function setGlassRoom({ room, mirror, rough, k } = {}) {
+  const U = GLASS_ROOM_U;
+  const fin = (v, name) => {
+    if (v === undefined) return;
+    if (!Number.isFinite(v) || v < 0) throw new Error(`setGlassRoom: ${name} must be a finite number >= 0, got ${v}`);
+    U[name].value = v;
+  };
+  fin(room, 'uGlassRoom'); fin(mirror, 'uGlassMirror'); fin(rough, 'uGlassRough'); fin(k, 'uGlassRoomK');
+  return glassRoomState();
+}
+export function glassRoomState() {
+  const U = GLASS_ROOM_U;
+  return { room: U.uGlassRoom.value, mirror: U.uGlassMirror.value, rough: U.uGlassRough.value,
+    k: U.uGlassRoomK.value, t: U.uGlassRoomT.value };
+}
+
 // One sampler2DArray for every wall and roof surface. `aLayer` is a per-vertex
 // attribute so a merged chunk mixing stucco walls and tile roofs is still one
 // draw call; uLayerBias lets a single-surface mesh skip the attribute entirely.

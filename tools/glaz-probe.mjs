@@ -35,6 +35,14 @@
 //   GLZ_VIEWS   views (default 'towerA,towerB')
 //   GLZ_CAL     also capture an environmentIntensity=0 control, which is the
 //               instrument's proof that it can produce the opposite reading
+//   GLZ_ARMS    a JSON list of #36 facade-glass arms, [{"name":"off","room":0,"mirror":1}, ...],
+//               each pushed through __district.setFacadeGlass. Every arm is shot off the SAME
+//               page load, camera, streamed district and frozen cloud deck, and the four mask
+//               passes are taken ONCE per view and hour and shared, because they are
+//               material-independent (kind/rm/wy/mask all swap the facade material out). That
+//               independence is asserted, not assumed: on the first view and hour the passes are
+//               also taken under the LAST arm and must be byte-identical, or the run stops.
+//               Unset, the capture is exactly what it always was.
 import { chromium } from 'playwright';
 import { launchOptions } from './browser.mjs';
 import { ensureServer } from './serve.mjs';
@@ -58,6 +66,13 @@ const W = Number(process.env.GLZ_W ?? 1280), H = Number(process.env.GLZ_H ?? 720
 // serve.mjs now refuses a foreign tree outright, so the default is safe rather
 // than silent, but a worktree run still needs a port of its own.
 const PORT = Number(process.env.GLZ_PORT ?? 8123);
+const ARMS = process.env.GLZ_ARMS ? JSON.parse(process.env.GLZ_ARMS) : [];
+for (const a of ARMS) {
+  if (!a || typeof a.name !== 'string' || !/^[a-z0-9]+$/i.test(a.name)) {
+    throw new Error(`GLZ_ARMS: every arm needs an alphanumeric name, got ${JSON.stringify(a)}`);
+  }
+}
+if (new Set(ARMS.map((a) => a.name)).size !== ARMS.length) throw new Error('GLZ_ARMS: arm names repeat');
 
 // Building 55: h 54.4 m, a 107 m glazed face, the largest unobstructed curtain
 // wall in the district. Chosen by tools' pick over every h >= 26 building (all of
@@ -309,6 +324,62 @@ function components(cls, want, w, h, minArea) {
     if (px.length >= minArea) out.push(px);
   }
   return out;
+}
+
+/**
+ * #36: IS A WINDOW A FLAT FILL? The constraint on any fix for the blue noon glass is an older
+ * finding, "every window is a flat dark fill", and a fix that darkens the glass can re-open it
+ * while moving every colour number the right way. So the fill is measured, on the SAME pixels
+ * the B/R is: each 4-connected pane of class `want` is one window as the shader drew it, and
+ *
+ *   modulation   p90/p10 of scene-linear luminance INSIDE one pane - 1.00 is a flat fill,
+ *                and a pane carrying a reflection, a room or a gradient reads well above it
+ *   flatFrac     the share of panes under `flatBelow`, i.e. how many windows ARE flat fills
+ *   cv           the spread of pane means across the frame - every window the same value
+ *                is the other half of "flat"
+ *
+ * A pure function of a class map and a luminance array so it can be proved on known input
+ * (see the selftest) and used on a capture or a detector's mask alike. Panes under `minArea`
+ * are not windows; rows past `rowMax` are not counted, so a caller can hold this to the same
+ * above-horizon band pane-tint's ratios use. A NaN pixel is skipped, never averaged.
+ */
+export function paneStructure(cls, lum, w, h, { want = 1, minArea = 40, rowMax = Infinity, flatBelow = 1.25 } = {}) {
+  const seen = new Uint8Array(w * h);
+  const stack = new Int32Array(w * h);
+  const ok = (i) => cls[i] === want && ((i / w) | 0) <= rowMax;
+  const mods = [], means = [];
+  for (let s0 = 0; s0 < w * h; s0++) {
+    if (seen[s0] || !ok(s0)) continue;
+    let sp = 0; stack[sp++] = s0; seen[s0] = 1;
+    const vals = [];
+    let area = 0;
+    while (sp) {
+      const q = stack[--sp];
+      area++;
+      const v = lum[q];
+      if (Number.isFinite(v)) vals.push(v);
+      const x = q % w;
+      if (x > 0 && !seen[q - 1] && ok(q - 1)) { seen[q - 1] = 1; stack[sp++] = q - 1; }
+      if (x < w - 1 && !seen[q + 1] && ok(q + 1)) { seen[q + 1] = 1; stack[sp++] = q + 1; }
+      if (q >= w && !seen[q - w] && ok(q - w)) { seen[q - w] = 1; stack[sp++] = q - w; }
+      if (q < w * (h - 1) && !seen[q + w] && ok(q + w)) { seen[q + w] = 1; stack[sp++] = q + w; }
+    }
+    if (area < minArea || vals.length < minArea / 2) continue;
+    vals.sort((a, b) => a - b);
+    const p10 = vals[Math.floor(0.10 * (vals.length - 1))], p90 = vals[Math.floor(0.90 * (vals.length - 1))];
+    mods.push(p90 / Math.max(p10, 1e-9));
+    means.push(vals.reduce((a, b) => a + b, 0) / vals.length);
+  }
+  const q = (a, f) => { const t = a.slice().sort((x, y) => x - y); return t.length ? t[Math.floor(f * (t.length - 1))] : NaN; };
+  const mu = means.length ? means.reduce((a, b) => a + b, 0) / means.length : NaN;
+  const sd = means.length ? Math.sqrt(means.reduce((a, b) => a + (b - mu) ** 2, 0) / means.length) : NaN;
+  return {
+    panes: mods.length,
+    modMedian: q(mods, 0.5), modP25: q(mods, 0.25), modP75: q(mods, 0.75),
+    flatFrac: mods.length ? mods.filter((m) => m < flatBelow).length / mods.length : NaN,
+    cv: mu > 0 ? sd / mu : NaN,
+    meanLum: mu,
+  };
 }
 
 const BANDS = [[0, 8], [8, 16], [16, 24], [24, 32], [32, 40], [40, 60]];
@@ -798,6 +869,14 @@ async function capture() {
   await page.waitForFunction('window.__district && window.__district.frames > 5', null, { timeout: 120000 });
   await page.addStyleTag({ content: '#attr,#hud,.pv-hud{display:none!important}' });
   await page.evaluate(() => { __district.setHudEnabled(false); __district.setTraffic(0); __district.setPedestrians(0); });
+  // Arms are compared with each other, so the one clock still running in the scene is
+  // stopped: hero-shots' reason, a cloud deck that drifts between two arms' shutters.
+  if (ARMS.length) {
+    const froze = await page.evaluate(() => (__district.freezeClouds ? __district.freezeClouds(20) : null));
+    if (!froze) throw new Error('GLZ_ARMS: this tree has no freezeClouds, so arms would differ in the sky');
+    const has = await page.evaluate(() => typeof __district.setFacadeGlass === 'function');
+    if (!has) throw new Error('GLZ_ARMS: this tree has no __district.setFacadeGlass - nothing to switch');
+  }
 
   await page.evaluate(async () => {
     const THREE = await import('/vendor/three.module.min.js');
@@ -1017,6 +1096,7 @@ async function capture() {
   const srcAtLoad = srcStamp();
   console.log(`source at page load: ${Object.entries(srcAtLoad).map(([k, v]) => `${path.basename(k)} ${v}`).join('  ')}`);
   const index = [];
+  let masksProved = false;
   const stations = VIEW_NAMES.some((v) => v.startsWith('pano:')) ? panoStations(W, H) : new Map();
   for (const vname of VIEW_NAMES) {
     const v = VIEWS[vname] ?? stations.get(vname);
@@ -1055,12 +1135,44 @@ async function capture() {
       // Generous: other harnesses share this container, and the sky rebuilds its
       // PMREM on a time-of-day change.
       await page.waitForTimeout(14000);
-      const base = path.join(OUT, `${TAG}-${vname.replace(/:/g, '_')}-${tod}`);
+      const vtag = vname.replace(/:/g, '_');
+      let firstBase = null, envProfile = null, irrProfile = null;
+      const armList = ARMS.length ? ARMS : [null];
+      for (const [ai, arm] of armList.entries()) {
+      let armState = null;
+      if (arm) {
+        armState = await page.evaluate((a) => __district.setFacadeGlass(a), arm);
+        // FRAMES after the uniforms moved, never milliseconds: on the software
+        // rasteriser a short wait can be less than one frame (hero-shots' rule).
+        const f0 = await page.evaluate(() => __district.frames);
+        await page.waitForFunction((f) => __district.frames > f + 3, f0, { timeout: 300000, polling: 100 });
+      }
+      const base = path.join(OUT, `${TAG}${arm ? `-${arm.name}` : ''}-${vtag}-${tod}`);
       await page.screenshot({ path: `${base}.png`, timeout: 240000 });
-      fs.copyFileSync(`${base}.png`, path.join(SHOTS, `glaz-${TAG}-${vname.replace(/:/g, '_')}-${tod}.png`));
-      for (const mode of ['kind', 'rm', 'wy', 'mask']) {
-        const s = await page.evaluate((m) => __glzScan(m), mode);
-        fs.writeFileSync(`${base}.${mode}.bin`, Buffer.from(s.b64, 'base64'));
+      fs.copyFileSync(`${base}.png`, path.join(SHOTS, `glaz-${TAG}${arm ? `-${arm.name}` : ''}-${vtag}-${tod}.png`));
+      if (ai === 0) {
+        for (const mode of ['kind', 'rm', 'wy', 'mask']) {
+          const s = await page.evaluate((m) => __glzScan(m), mode);
+          fs.writeFileSync(`${base}.${mode}.bin`, Buffer.from(s.b64, 'base64'));
+        }
+        firstBase = base;
+      } else {
+        for (const mode of ['kind', 'rm', 'wy', 'mask']) fs.copyFileSync(`${firstBase}.${mode}.bin`, `${base}.${mode}.bin`);
+        // The sharing above is only honest if no arm can move a mask pass. Proved on
+        // the first view and hour against the LAST arm, which is the one furthest
+        // from the arm the masks were taken under.
+        if (!masksProved && ai === armList.length - 1) {
+          for (const mode of ['kind', 'rm', 'wy', 'mask']) {
+            const s = await page.evaluate((m) => __glzScan(m), mode);
+            const mine = Buffer.from(s.b64, 'base64'), shared = fs.readFileSync(`${firstBase}.${mode}.bin`);
+            if (!mine.equals(shared)) {
+              throw new Error(`GLZ_ARMS: the ${mode} pass differs between arm ${armList[0].name} and arm ${arm.name}, `
+                + 'so the masks are not arm-independent and cannot be shared');
+            }
+          }
+          console.log(`  mask passes byte-identical under arms ${armList[0].name} and ${arm.name}: sharing them is exact`);
+          masksProved = true;
+        }
       }
       const check = await page.evaluate(() => {
         const pts = [];
@@ -1092,9 +1204,12 @@ async function capture() {
         };
       });
       // What the environment itself offers a mirror at this hour, measured off a
-      // chrome ball rather than inferred from the frame.
-      const envProfile = await page.evaluate(() => __glzEnv(false));
-      const irrProfile = await page.evaluate(() => __glzEnv(true));
+      // chrome ball rather than inferred from the frame. Arm-independent (the ball is
+      // its own material), so taken once per view and hour.
+      if (ai === 0) {
+        envProfile = await page.evaluate(() => __glzEnv(false));
+        irrProfile = await page.evaluate(() => __glzEnv(true));
+      }
       const srcAtShot = srcStamp();
       const drift = SRC_WATCH.filter((f) => srcAtShot[f] !== srcAtLoad[f]);
       if (drift.length) {
@@ -1104,10 +1219,17 @@ async function capture() {
       fs.writeFileSync(`${base}.meta.json`, JSON.stringify({
         w: W, h: H, view: vname, tod, ...check, cam: v, envProfile, irrProfile,
         srcAtLoad, srcAtShot, srcDrift: drift,
+        ...(arm ? { arm: arm.name, armAsked: arm, armState, masksFrom: path.basename(firstBase) } : {}),
       }, null, 1));
       const r = report(base);
-      overlay(base, `${SHOTS}/glaz-${TAG}-${vname.replace(/:/g, '_')}-${tod}.mask.png`);
-      console.log(fmt(r));
+      if (ai === 0) {
+        overlay(base, `${SHOTS}/glaz-${TAG}${arm ? `-${arm.name}` : ''}-${vtag}-${tod}.mask.png`);
+        console.log(fmt(r));
+      } else {
+        console.log(`${r.base}   arm ${arm.name} holds ${JSON.stringify(armState)}   glass B/R ${f(r.glass.br, 3)}  `
+          + `wall B/R ${f(r.wall.br, 3)}  glass:wall ${f(r.ratio, 3)}`);
+      }
+      if (ai === 0) {
       // Instrument check: the wy pass against a real raycast, same pixels.
       const wy = new Uint8Array(fs.readFileSync(`${base}.wy.bin`));
       const cmp = check.pts.filter((p) => p.ray).map((p) => {
@@ -1125,7 +1247,9 @@ async function capture() {
       console.log(`  irradiance by normal elevation (nits, B/R): ` +
         irrProfile.filter((e) => e.el % 20 === 0 && e.el >= -20 && e.el <= 60)
           .map((e) => `${e.el}deg ${e.nits}/${e.br}`).join('  '));
-      index.push({ base, view: vname, tod });
+      }
+      index.push({ base, view: vname, tod, arm: arm ? arm.name : null });
+      }
     }
   }
 
@@ -1342,6 +1466,48 @@ function selftest() {
   sr = report(synth(dir, 'shopgood', { ...shopOpts, shopTop: 60, shopBot: 20 }));
   ck('shopfront bright-head/dark-cill -> head/cill > 1.6', sr.shopPanes.topOverBottom > 1.6,
     f(sr.shopPanes.topOverBottom, 3));
+
+  // 6. #36's flat-fill metric, on known input. Each case is one the metric could get wrong while
+  //    printing a plausible number.
+  {
+    const W2 = 60, H2 = 40;
+    const mk = (fill) => {
+      const cls2 = new Uint8Array(W2 * H2), lum2 = new Float64Array(W2 * H2);
+      for (let y = 0; y < H2; y++) for (let x = 0; x < W2; x++) {
+        const i = y * W2 + x, px = x % 20, py = y % 20;
+        if (px >= 2 && px < 18 && py >= 2 && py < 18) { cls2[i] = 1; lum2[i] = fill(x, y, px, py); }
+      }
+      return { cls2, lum2 };
+    };
+    // Six panes, each flat, at different levels: a flat fill reads exactly 1, and the panes differ.
+    let { cls2, lum2 } = mk((x, y) => 1 + Math.floor(x / 20) + 3 * Math.floor(y / 20));
+    let st = paneStructure(cls2, lum2, W2, H2);
+    ck('#36 six flat panes read modulation 1.000 and are ALL flat', st.panes === 6 && st.modMedian === 1 && st.flatFrac === 1,
+      `panes ${st.panes} mod ${f(st.modMedian, 3)} flat ${st.flatFrac}`);
+    ck('#36 ...and differ from each other (cv > 0.3)', st.cv > 0.3, f(st.cv, 3));
+    // A 3:1 ramp down every pane, 16 rows of 16: p10 lands on row 1 (1.133) and p90 on row 14
+    // (2.867), so the reading is 2.530 by arithmetic.
+    ({ cls2, lum2 } = mk((x, y, px, py) => 1 + 2 * (py - 2) / 15));
+    st = paneStructure(cls2, lum2, W2, H2);
+    ck('#36 a 3:1 ramp inside each pane reads modulation 2.530 and none flat', Math.abs(st.modMedian - 2.5294) < 0.001 && st.flatFrac === 0,
+      `mod ${f(st.modMedian, 3)} flat ${st.flatFrac}`);
+    ck('#36 ...and identical panes have no spread across them (cv 0)', st.cv < 1e-9, f(st.cv, 6));
+    // KNOWN-BAD: speckle. One-pixel "panes" are not windows and must not be scored.
+    const sp2 = new Uint8Array(W2 * H2), sl2 = new Float64Array(W2 * H2).fill(1);
+    for (let i = 0; i < W2 * H2; i += 2) sp2[i] = (i / W2) % 2 < 1 ? 1 : 0;
+    st = paneStructure(sp2, sl2, W2, H2);
+    ck('#36 KNOWN-BAD a speckle field scores no panes (NaN, not a number to quote)', st.panes === 0 && !Number.isFinite(st.modMedian),
+      `panes ${st.panes} mod ${st.modMedian}`);
+    // The row cut: only the top row of panes is above row 19.
+    ({ cls2, lum2 } = mk((x, y) => 1 + Math.floor(x / 20)));
+    st = paneStructure(cls2, lum2, W2, H2, { rowMax: 19 });
+    ck('#36 rowMax keeps only the panes above it', st.panes === 3, `panes ${st.panes}`);
+    // KNOWN-BAD: NaN pixels. A tenth of every pane NaN must not poison the reading.
+    ({ cls2, lum2 } = mk((x, y, px, py) => (px === 5 ? NaN : 1 + 2 * (py - 2) / 15)));
+    st = paneStructure(cls2, lum2, W2, H2);
+    ck('#36 NaN pixels are skipped, not averaged', Number.isFinite(st.modMedian) && st.modMedian > 2.0,
+      `mod ${f(st.modMedian, 3)}`);
+  }
 
   console.log(fails.length ? `SELFTEST FAIL: ${fails.join(', ')}` : 'SELFTEST PASS');
   return fails.length;
