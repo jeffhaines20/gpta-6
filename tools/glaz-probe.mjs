@@ -1096,7 +1096,7 @@ async function capture() {
   const srcAtLoad = srcStamp();
   console.log(`source at page load: ${Object.entries(srcAtLoad).map(([k, v]) => `${path.basename(k)} ${v}`).join('  ')}`);
   const index = [];
-  let masksProved = false;
+  let masksProved = false, todsProved = false;
   const stations = VIEW_NAMES.some((v) => v.startsWith('pano:')) ? panoStations(W, H) : new Map();
   for (const vname of VIEW_NAMES) {
     const v = VIEWS[vname] ?? stations.get(vname);
@@ -1129,6 +1129,7 @@ async function capture() {
     }
     console.log(`${vname}: streamed to ${prev} chunks`);
     await page.waitForTimeout(8000);
+    let viewMaskBase = null;
 
     for (const tod of TIMES) {
       await page.evaluate((t) => __district.setTimeOfDay(t), tod);
@@ -1150,10 +1151,27 @@ async function capture() {
       const base = path.join(OUT, `${TAG}${arm ? `-${arm.name}` : ''}-${vtag}-${tod}`);
       await page.screenshot({ path: `${base}.png`, timeout: 240000 });
       fs.copyFileSync(`${base}.png`, path.join(SHOTS, `glaz-${TAG}${arm ? `-${arm.name}` : ''}-${vtag}-${tod}.png`));
-      if (ai === 0) {
+      if (ai === 0 && !(ARMS.length && viewMaskBase)) {
         for (const mode of ['kind', 'rm', 'wy', 'mask']) {
           const s = await page.evaluate((m) => __glzScan(m), mode);
           fs.writeFileSync(`${base}.${mode}.bin`, Buffer.from(s.b64, 'base64'));
+        }
+        firstBase = base;
+        if (ARMS.length) viewMaskBase = base;
+      } else if (ai === 0) {
+        // An arms run shares the passes across HOURS as well: none of the four reads the
+        // light (kind is the material's name, rm its packed texel, wy the geometry, mask
+        // the coverage), and setTimeOfDay streams nothing. Proved once, like the arms.
+        for (const mode of ['kind', 'rm', 'wy', 'mask']) fs.copyFileSync(`${viewMaskBase}.${mode}.bin`, `${base}.${mode}.bin`);
+        if (!todsProved) {
+          for (const mode of ['kind', 'rm', 'wy', 'mask']) {
+            const s = await page.evaluate((m) => __glzScan(m), mode);
+            if (!Buffer.from(s.b64, 'base64').equals(fs.readFileSync(`${viewMaskBase}.${mode}.bin`))) {
+              throw new Error(`GLZ_ARMS: the ${mode} pass differs between ${TIMES[0]} and ${tod}, so it cannot be shared across hours`);
+            }
+          }
+          console.log(`  mask passes byte-identical at ${TIMES[0]} and ${tod}: sharing them across hours is exact`);
+          todsProved = true;
         }
         firstBase = base;
       } else {
