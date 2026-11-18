@@ -823,7 +823,7 @@ frames of the shipped build that a re-measurement can start from.
 ### #54 Traffic-car greenhouse is a hole at night: glass/paint 0.0225 in linear light
 `detail lost` beyond the subject line. Related to #92 and #36.
 
-### #36 MEASURED — noon glass is blue because what it reflects is blue; the levers trade dark-against-the-wall for structure, so the candidate ships OFF behind a switch for a blind pair
+### #36 MEASURED AND BLIND-REVIEWED — noon glass is blue because what it reflects is blue; the levers trade dark-against-the-wall for structure; the candidate ships OFF, and a blind reviewer preferred the build at noon in both framings
 **In four lines.** The record's own instrument does not read glass on this build: the photographs'
 detector, run on engine frames, labels as "pane" pixels that are glass by the shader's own mask 53%
 of the time at noon and 35% at golden. On that mask the glass reads B/R 1.341 at noon and 0.469 at
@@ -1035,7 +1035,68 @@ land in that window, so it shows the arm still works and does not exercise the f
 - The record's own detector precision (c556937, captured with masks).
 - The arms at 1280x960: the sweep is 640x480, the detector path validated against native on the
   photographs at median ratios of 0.99.
-- The candidate at night over more than one view, and the blind review itself.
+- The candidate at night over more than one view. (The blind review is the next paragraph.)
+
+**THE BLIND REVIEW (2026-11-18), the four pairs above, decoded against the key afterwards.** One fenced
+reviewer, eight frames and no repository. It found the change unaided and named it: the only build
+difference in every pair is the facade glazing, one build's panes brighter by x1.07 to x2.77 per pane in
+linear luma (x1.58 over the corridor's changed glass at both hours, x1.79 / x1.64 at fivepoints noon /
+golden), no changed pixel clipping. It grouped the eight frames into two builds without the key, from
+per-pane gains that agree across the two hours (log-gain correlation 0.951 over 23 corridor panes, 0.984
+over 19 at fivepoints), and the grouping is right: the bright build is `g36-glass0`, the build; the dark
+one is the candidate.
+
+    pair                preferred        strength     the reviewer's measurement
+    corridor noon       the BUILD        slight       3rd-floor panes carrying the sky's own colour reach
+                                                      9.0% / 13.7% of that sky (build) against 4.8% / 6.0%
+                                                      (candidate); one glass surface at 63-67 deg reflects 11-15%
+    corridor golden     the candidate    slight       the build's brightest 2nd-floor pane reaches 1.18-1.27x
+                                                      the shaded wall around it, amber (r/g 1.84-2.23,
+                                                      b/g 0.30-0.37) where no sky in frame is warmer than
+                                                      r/g 1.05: it reads as interior lights on, at 8 deg of sun
+    fivepoints noon     the BUILD        slight, the  each pane against the sky in its mirror direction: the
+                                         strongest    build is nearer one surface's Fresnel on 4 of 5 panes;
+                                                      the candidate's white-building right pane and the far
+                                                      building's panes "read as black holes"
+    fivepoints golden   none             -            the same test splits, 3 panes to 2
+
+**So at NOON, the hour this entry is about, the build is preferred in both framings, and the decision
+above stands as a blind result as well as the rule's.** What the candidate costs, in the reviewer's own
+numbers: near-black glass pixels (every channel at or under 20) 0.8% in the build against 3.2% in the
+candidate at corridor noon, 1.2% against 3.2% at fivepoints noon; the corridor's narrow street-level panes
+at 0.81-0.99 of the shop window beside them in the build and 0.36-0.42 in the candidate, where they read as
+dark gaps. That is the "every window is a flat dark fill" failure the rule was written for, seen blind.
+The candidate's one win is golden in the corridor, and its reason is a defect of the BUILD's (below), not
+a virtue of the candidate's.
+
+**And the reviewer reached this entry's mechanism from the pixels alone.** Every fivepoints pane's ratio to
+the sky it mirrors is x1.5-1.7 higher at golden than at noon, and the corridor's glass-to-wall ratio
+x2.2-2.8 higher. A pure reflection's ratio to what it mirrors does not depend on the hour, so the glass
+carries a part that does not follow the sky, and no gain fixed per pane suits both hours. That is the
+decomposition above (82% of a noon pane is the reflection, and at golden the rest is not), arrived at
+independently.
+
+**Defects measured in BOTH arms, which are the next round's starting points:**
+- **Noon glass is bluer than any sky in the frame.** Fivepoints, b/g 1.91-2.18 on the red building's big
+  pane and the white building's right pane, against 1.47 for the bluest sky (x20-120 y20-80). This entry's
+  own defect, seen blind, with a within-frame number on it; the elevation-matched sky comparison under
+  "Unmeasured" is the instrument that would say whether the sky or the glass carries it.
+- **Golden glass shows the pane's own colour, not a reflection.** Corridor panes amber (above); fivepoints'
+  red-building panes pink, r/g 1.33-1.77 against a mirrored sky at 0.96-1.00.
+- **Pane-to-pane brightness that geometry does not explain.** The white building's two panes at about 61 and
+  57 degrees differ x3.1-3.3 in both builds at both hours, where one surface's Fresnel at those angles
+  predicts about x1.2.
+- **A glazed strip at x1396-1428 y10-220 is near-black and flat:** 0.014-0.039 linear, p10-p90 within 10%.
+- Not #36's: stair-stepped leaf edges (2.1% intermediate pixels on the canopy/sky edge against 15.4% on a
+  lamp post) - these frames are from 54ae702, whose base 5096b48 does not contain #145 (fc3b3d2), which
+  fixed exactly that and was preferred blind 6 of 6; tree limbs as flat pale ribbons, #147's, a further
+  independent sighting; and a stopped car whose rims change between captures while its body does not,
+  filed as #149.
+
+The reviewer's own caveats: every ratio is in output space, so a filmic toe could put the darkest panes'
+scene-referred ratios up to about 2x higher; its viewing angles come from a focal length it estimated
+(1,200-1,300 px) and carry about 30%; what each pane really reflects cannot be known from pixels. It
+disclosed that CLAUDE.md was loaded into its context and did not describe this change.
 
 #### THE RECORD THIS ROUND STARTED FROM, kept verbatim
 ### #36 OPEN, detail recovered — building glass at noon is 1.30 B/R against a photographed 0.804, and the coating lever is exhausted
@@ -7042,6 +7103,9 @@ fivepoints at noon, golden and dusk. Coordinates are the 1600x900 hero frames; n
   and no bark structure. The reviewer had no reference photograph and recorded it as an observation; #145
   measured one photographed trunk at x0.49 of the sunlit road beside it against the shipped limb's x0.94, and
   did not move the tone on one sample.
+- **Seen again by #36's blind reviewer (2026-11-18, frames at 54ae702, before #145):** the corridor's tree limbs
+  as flat pale ribbons with torn ends, crossing the facades diagonally from about (1190,190) to (1520,530). Not
+  measured; recorded as a further independent sighting.
 
 ### #148 FIXED — 23 street lamps had their pavement-side globe in a building; the fivepoints "lamp inside a building" that prompted the census is a specular glint
 
@@ -7087,3 +7151,22 @@ the second-largest in the frame, straddles the corner of the brick building. At 
 globe there: A reads (133,100,99), which is wall and facade, whereas the frame's real globes read about
 (159..194, 115..149, 90..117). This is the source of B's dusk hotspot. Of the 13 lamps in this frame, it is
 the one with no visible head."
+
+### #149 OPEN — a stopped car's rims turn between two captures while its body does not
+
+From #36's blind reviewer (2026-11-18), in both fivepoints pairs (noon and golden) and in both builds: the stopped
+red car's two visible rims differ between two frames captured minutes apart off ONE page load - x492-513
+y579-608 and x588-613 y580-612, 624 px at noon and 494 at golden, max |d| 20 levels - while 25 and 13 of its
+12,607 body pixels differ, by 1 level. #142's round-1 reviewer saw the same car's "sub-pixel noise" in its night
+control across two page loads, and round 2's builder measured 14 px of it. A real car standing still does not
+turn its wheels.
+
+Not diagnosed. Read and NOT measured: `src/vehicle.js` advances `w.spinAngle += (vLong / this.wheelRadius) * dt`
+inside the wheel loop, BEFORE #146's rest hold clears the planar velocity, so a car the hold keeps still would
+still turn its wheels by whatever velocity the step built up and the hold then discards. Only the player's car
+runs that model - a grep of src/ for wheel rotation finds vehicle.js and nothing else - so the first thing to
+check is whether the red car IS the player's car at that camera. If it is a traffic or parked car, its rims
+change for another reason (a reflection or a light), and the reading above is wrong.
+
+The check is offline and cheap: hold a vehicle.js car under the rest hold for a minute of sim, assert
+`restHeld` counted, and read every wheel's `spinAngle` before and after.
