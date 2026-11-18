@@ -7,6 +7,24 @@ minified `vendor/` build, no build step, no npm dependencies but Playwright.
 Everything below is here because it went wrong at least once. Each rule cost
 hours; several cost a whole review round.
 
+## CI failed on every push for two weeks, and the owner's inbox was the only instrument that saw it
+
+`.github/workflows/gates.yml` runs the static gates and the budget drive on every push. From run #484
+(2026-11-04) to 2026-11-18 **every run failed, 64 of them**, each one a "run failed: gates" email to the
+owner — and none was a verdict about the build. `ubuntu-latest` had moved to Ubuntu 26.04, Playwright
+1.56.1 (package-lock) has no Chromium for it, and the budget job died at "Install Chromium" a minute in,
+before any gate ran. Every round ran its gates locally, so nobody here read CI; the owner asked why the
+emails kept coming.
+
+The browser job is pinned to `ubuntu-24.04` now (where it last passed), its timeout is 45 minutes (the
+last pass used 22.5 of 25), and push runs skip `wip/**`. Two things to carry:
+
+- **A workflow is read from the PUSHED commit.** Changing `on:` on the working branch does nothing for a
+  builder branch that still carries the old file; each live `wip/` branch had to cherry-pick the change.
+- **A CI run that fails in a setup step has not run a gate.** Read which step failed before reading the
+  red as a result, and check the last PASS date when starting a session:
+  `mcp__github__actions_list` with `list_workflow_runs` on `gates.yml` answers it in one call.
+
 ## Before you start
 
 ```
