@@ -6461,7 +6461,54 @@ through one side is sin^2(atan(h/d))) doing at dusk what it does for the lamps a
 darkens most of the gap. Keyed to the photocell it would switch off exactly here, which is the row
 `contact-follows-photocell`. The comment says so now; the switch is unchanged.
 
-**The captures, the rows and the gates' lines** — pending, this round is still running them.
+**The captures.** hero-shots, one process per framing, clouds frozen at 20 s, `traffic=0`, no crowd, dusk and
+night: `d142b` from an export of a2e0626 on :8284, `d142` from this tree on :8285 (src at 915fd8c). Both logs open
+`cloud deck: frozen at 20s` and settle the camera on the streamer's quiet (`corridor: camera at (112.4, -163.8),
+back -55, 11.2 m clear of the nearest footprint`; `fivepoints: camera at (31.5, -156.8), back 26, 5.1 m clear`).
+Frames and per-framing audits are committed (03844bd): `docs/shots/d142b-*.png`, `docs/shots/d142-*.png`,
+`docs/d142b-*-audits.json`, `docs/d142-*-audits.json`.
+
+The pair is registered: 83 chunks, LOD 16 near / 67 far, and draw calls and triangles identical between the arms
+at both hours — 177 / 573,413 and 164 / 567,007 at corridor, 200 / 621,569 and 186 / 599,602 at fivepoints. So the
+ten pool lights cost nothing in the gate's units: no shadow maps, no draws. Lit point lights 10 -> 0 at dusk and
+10 -> 10 at night, the after build's audit reading the cell at 1,623.94 lux (off) and 0.41 (on), and `implausible`
+empty in all eight.
+
+What differs, as connected components of pixels over 4/255, each placed against the globes dusk-lamps projected
+in the same frame:
+
+    corridor dusk      628 px  0.044% of the frame   498 on 15 street-lamp globes (max 53), 78 on the midOffice
+                                                     lobes (max 129, the reviewer's "low lamp"), 52 in small pool
+                                                     glints
+    fivepoints dusk  3,271 px  0.227%                2,474 on 12 globes (max 65), 616 on the retailStrip lobe
+                                                     (max 146, the reviewer's "wall lamp"), 42 on the player's
+                                                     car glass (the pool's glints, max 95), 139 small
+    corridor night       0 px                        byte-for-byte within 1/255
+    fivepoints night    62 px  0.004%                all on the player's car, x 484-732, y 555-604: the speckle
+                                                     #136's review found and the dusk-lamps reads put at 69 px
+                                                     with the pool off in both arms; not this change
+
+So the dusk change is exactly the globes going unlit (mean sRGB luma 155 -> 130 on lamp 283's outer globe, 21.7 m out) and the
+pool's lobes going out, and nothing else in either frame moves past 4/255 — no tail lens, no road, no facade. The
+night pairs are the control.
+
+**The blind set.** `node tools/blind-compare.mjs d142b d142` refused, correctly: all four pairs under its 8%
+signal floor in every band (corridor dusk 0.07%, fivepoints dusk 0.52%, night 0% and 0.01%). Built with `--force`,
+because neither reason the refusal guards against holds — the two arms are two builds (the audits differ in lit
+lights at dusk and the differing pixels sit on the globes the probe projected), and the change is small in area by
+construction (the pool was 0.11-0.12% of the dusk frame), with the night pairs the byte-identical control that
+says the pair is registered. `docs/shots/blind/` (untracked), four pairs, A is the before arm in 2 of 4. The key is
+`docs/shots/blind-key-d142b-d142.json`, untracked, and was not read.
+
+**The gates.** `boot-check`, BOOT_PORT 8283 at 03844bd: `BOOT: PASS — 127 checks in 926 s`, opening `BOOT CHECK / dom in
+0.7 s`. Its photocell lines read the boot hour at 1,602.6 lux (sky 1,575.1 on one path), x99.3 the turn-on, every
+street lamp off with the cars on and no flag; night at 0.4 lux with ten pool lights lit by the host; and back at dusk
+1,623.9 lux (sky 1,596.5), dark again. The boot reading is 1.3% under the re-applied one because the dome's PMREM at
+first boot is not yet the one apply()'s synchronous refresh builds — the same 1,596.5 the probe and hero-shots read;
+either way x99-100. The offline list's 34 node gates: `34 of 34 green in 142 s` (photocell 11 checks in 0.27 s,
+its selftest 13).
+
+**Still to land in this entry** — the offline list's browser half, `daynight-sweep`, and the nine rows.
 
 **The decision.** The street lamps are OFF at the dusk preset, by a photocell computed off the light the hour
 delivers, because every number above says a real one would be: x100 its turn-on on the page, x35 under the
@@ -6485,9 +6532,11 @@ street lamp or lit globes where the cell holds them off and reports the cell, R4
 line this file records twice; the cars (`setLights`, line 2248) and #141's footprint (line 2253) stay on
 `lampsOn`, with the reason at each. `src/carcontact.js`: the footprint's comment says why it stays on at dusk
 (the sky, line 39). Nothing else moves: facades and signage switch by hour (interior light and the shops'
-own timers, not street lighting), the traffic signals burn always, and the parked cars' tail reflectors were
-already keyed to the street lamps' flag (`StreetFurniture._lit`, "a reflector with nothing shining on it
-returns nothing"), so they go dark at dusk with the lamps — a visible change the captures carry.
+own timers, not street lighting), and the traffic signals burn always. The parked cars' tail reflectors are
+wired to the street lamps' flag (`StreetFurniture._lit`, "a reflector with nothing shining on it returns
+nothing"), and the wire reaches nothing: `RETRO.scale` in src/carbody.js has been 0 since 35cba0b (2026-09-16,
+"Parked lamps off"), so `retroEmissive` returns 0 whatever the flag says. The captures agree — no tail lens in
+either dusk pair moves by more than 4/255.
 
 **Gated.** `tools/photocell.mjs` (new, on both lists, 11 checks, 0.2 s): the real TimeOfDay through every preset
 with a real StreetFurniture and LightPool in its scene. Offline the sky is the HemisphereLight's, so dusk reads
@@ -6541,6 +6590,14 @@ every hour, which the new flags keep (see its line below).
   been killed during its last run; replaced by one job per run before it started any.
 - **A process slip**: boot-check's and globe-round's restatements landed one commit after the change they restate
   (a58c97a after 1eee792), both pushed before any run, not in the same commit as CLAUDE.md asks.
+- **This entry said the parked cars' tail reflectors "go dark at dusk with the lamps — a visible change the
+  captures carry".** It read the wire (`_lit` -> `retroEmissive`) without its scale, which has been 0 for two
+  months. The captures were what said so: not one differing pixel on a tail lens. One `grep` for the function's
+  constant would have said it first.
+- **The first BEFORE pass lost all four frames** to hero-shots' 180 s screenshot bound — four cores at load 13
+  with three headless browsers alive, while the page rendered about thirty frames through each wait. The arm
+  printed "2 FRAME(S) NOT CAPTURED" and exited 0, and the AFTER waiter chained behind it would have started on
+  that exit; it was stopped and the bound made an environment variable (8fa80c9), 1,200 s for both arms.
 
 **Not measured.** A photographed unlit globe against open sky, to set the dusk globe a target the way
 `glass-census` set the glazing's: none in `reference/sarasota` resolves one (Worth's Block's globes all stand
