@@ -25,7 +25,7 @@
 import fs from 'node:fs';
 import { BlockerIndex, CarBlockers, insideRing, ringArea, contactImpulse,
   districtBounds, worldFence, WORLD_MARGIN_M,
-  FENCE_FULL_M, FENCE_BRAKE_MS, FENCE_CRAWL_MS, composeFence } from '../src/blockers.js';
+  FENCE_FULL_M, FENCE_BRAKE_MS, FENCE_CRAWL_MS, FENCE_TANGENT, composeFence } from '../src/blockers.js';
 import { Vehicle, composeStuck, STUCK_HOLD_S, STUCK_THROTTLE,
   STUCK_SPEED_MS, STUCK_CONTACT_GRACE_S, BODY_SAMPLES, BODY_RADIUS } from '../src/vehicle.js';
 import { FlatGround } from '../src/ground.js';
@@ -545,8 +545,11 @@ console.log('\n§ the fence, swept over the pose');
   const depthAt = (x, z) => Math.hypot(Math.max(BOX.x0 - x, 0, x - BOX.x1),
     Math.max(BOX.z0 - z, 0, z - BOX.z1));
   const yawOf = (q) => Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y ** 2 + q.x ** 2));
-  const place = (out, yaw) => {
+  // `hold: false` takes the rest hold away (src/vehicle.js, REST_HOLD_MS), for the one arm that has
+  // to measure the crawl it removes.
+  const place = (out, yaw, { hold = true } = {}) => {
     const v = new Vehicle();
+    if (!hold) v.restHoldMs = 0;
     v.position.set(BOX.x1 + out, v.position.y, 0);
     v.quaternion.setFromAxisAngle({ x: 0, y: 1, z: 0 }, yaw);
     return v;
@@ -588,15 +591,33 @@ console.log('\n§ the fence, swept over the pose');
       kmh: Math.hypot(v.velocity.x, v.velocity.z) * 3.6 };
   };
   const HOLD = (c) => () => c;
-  /** A player heading home: full throttle, steering at the district, reversing out of a corner. */
+  /**
+   * A player heading home who DOES WHAT THE HUD SAYS: `composeFence`'s verb picks forward or reverse,
+   * and the end of the car that leads is steered at the district.
+   *
+   * THE FIRST VERSION STEERED AWAY FROM HOME GOING FORWARD, and the sweep passed on the creep. A
+   * positive steer turns the nose toward (fz, -fx) — src/vehicle.js rotates each steered wheel about
+   * +y by the steer angle, so a nose along +z swings toward +x — and the old forward branch took the
+   * sign of `fx*hz - fz*hx`, which is the opposite. Traced on the tangential pose 30 m out: full lock,
+   * the nose turning OUTWARD from 0 to +0.007 of dot, forward refused, the car stopped. It then got
+   * home in 129-142 s only because a parked car crept 4.9 mm/s: creep at full lock rotated it about
+   * 11.5 degrees over two minutes, past `ahead < -0.2`, where the REVERSE branch — which had the right
+   * sign, `-steer` of a wrong one — backed it home. The rest hold removed the creep and the four poses
+   * nearest the tangent never got home at all.
+   *
+   * In reverse the same sign brings the TAIL round to home: the yaw rate flips with the direction of
+   * travel and the tail is the nose's opposite, two sign changes. And the verb is the fence's own
+   * `noseOut`, which is exactly "forward is refused here", so this player never holds a control the
+   * fence refuses; the old `ahead < -0.2` held forward at +1 and +6 degrees out, where it is refused.
+   */
   const HOMEWARD = (v, y) => {
     const fx = Math.sin(y), fz = Math.cos(y);
     const hx = -v.position.x, hz = -v.position.z, hl = Math.hypot(hx, hz) || 1;
-    const cross = fx * (hz / hl) - fz * (hx / hl);
-    const ahead = (fx * hx + fz * hz) / hl;
-    const steer = Math.max(-1, Math.min(1, cross * 3));
-    return ahead < -0.2
-      ? { throttle: -0.55, brake: 0, steer: -steer }
+    const steer = Math.max(-1, Math.min(1, 3 * (hx * fz - hz * fx) / hl));
+    const verb = composeFence(worldFence(BOX, v.position.x, v.position.z, fx, fz,
+      v.velocity.x, v.velocity.z, { throttle: 0, brake: 0 }))?.subtitle;
+    return verb === 'reverse'
+      ? { throttle: -0.55, brake: 0, steer }
       : { throttle: 1, brake: 0, steer };
   };
 
@@ -605,9 +626,23 @@ console.log('\n§ the fence, swept over the pose');
    *    error. This is the defect, and the measurement that is its own known-bad: with the old sign
    *    test the same arm read a mean brake of 0.990.
    */
-  const rest = run(place(FENCE_FULL_M, 0), HOLD({ throttle: 0, brake: 0, steer: 0 }), 10);
-  console.log(`    at rest ${FENCE_FULL_M} m out, tangential: worst |v_out| ${rest.drift.toExponential(2)} m/s, ` +
-    `mean fence brake ${rest.brake.toFixed(3)} (the sign test it replaced read 0.990)`);
+  /**
+   * MEASURED WITH THE REST HOLD OFF, because the hold removes the drift this arm is about. With it the
+   * same arm drifts exactly 0 m/s, which passes "not held on the brake" for the most flattering
+   * reason; without it the car crawls 4.9 mm/s, which is the worst case the fence has to ignore and
+   * the one a regression in the hold would bring back.
+   */
+  const restCar = place(FENCE_FULL_M, 0, { hold: false });
+  const rest = run(restCar, HOLD({ throttle: 0, brake: 0, steer: 0 }), 10);
+  const heldCar = place(FENCE_FULL_M, 0);
+  const held = run(heldCar, HOLD({ throttle: 0, brake: 0, steer: 0 }), 10);
+  console.log(`    at rest ${FENCE_FULL_M} m out, tangential, rest hold off: worst |v_out| ` +
+    `${rest.drift.toExponential(2)} m/s, mean fence brake ${rest.brake.toFixed(3)} ` +
+    `(the sign test it replaced read 0.990); with the hold: ${held.drift.toExponential(2)} m/s, ` +
+    `held on ${heldCar.restHeld} of ${10 * HZ} steps`);
+  check('and with the rest hold the same car does not drift at all, because the hold is what held it',
+    held.drift === 0 && heldCar.restHeld > 0 && restCar.restHeld === 0,
+    `${held.drift} m/s, held ${heldCar.restHeld} steps against ${restCar.restHeld} with it off`);
   check('a car standing still outside is not held on the brake by numerical noise',
     rest.brake < 0.05, `mean brake ${rest.brake.toFixed(3)}`);
   check('and the drift that used to latch it is real, so the arm is not measuring nothing',
@@ -762,6 +797,36 @@ console.log('\n§ the fence, swept over the pose');
       { throttle: 1, brake: 0 }).controls.throttle;
     check('but the tangent itself is not, or a stationary car could never get moving',
       atTangent === 1, `${atTangent}`);
+    /**
+     * AND NOR IS A REAL CAR STANDING ON IT, which is the sentence above and not the same check. The
+     * check above hands the fence an exact (0, 1); a car on its wheels points a few 1e-8 off where it
+     * was placed, because pitch and roll together turn the nose, and any positive swing read as
+     * outward until FENCE_TANGENT. So measure the swing off settled cars at 24 headings, with the
+     * throttle held through the touchdown the way the tours above hold it, and assert the band
+     * against it — and against the smallest outward nose this sweep requires refused.
+     */
+    let swing = 0;
+    for (let k = 0; k < 24; k++) {
+      const yaw0 = k * Math.PI / 12;
+      const v = new Vehicle();
+      v.position.set(0, v.position.y, 0);
+      v.quaternion.setFromAxisAngle({ x: 0, y: 1, z: 0 }, yaw0);
+      for (let i = 0; i < 2 * HZ; i++) {
+        // Throttle only until the wheels are down: past that the car would drive, and a moving car's
+        // heading is the steering's business rather than the suspension's.
+        v.setControls({ throttle: i < 4 ? 1 : 0, brake: i < 4 ? 0 : 1, steer: 0 });
+        v.stepFixed(DT, ground, HZ);
+        swing = Math.max(swing, Math.abs(Math.sin(yawOf(v.quaternion) - yaw0)));
+      }
+    }
+    const smallest = Math.sin(Math.min(...angles) * Math.PI / 180);
+    console.log(`      a settled car's nose swings ${swing.toExponential(2)} off its placed heading; ` +
+      `the band is ${FENCE_TANGENT.toExponential(0)}, the smallest refused nose ${smallest.toExponential(2)}`);
+    check('the tangent band holds a settled car\'s own nose swing, with a 10x margin',
+      FENCE_TANGENT > 10 * swing && swing > 0,
+      `${FENCE_TANGENT} against ${swing.toExponential(2)} — x${(FENCE_TANGENT / swing).toFixed(0)}`);
+    check('and is a hundred times under the smallest outward nose the sweep requires refused',
+      FENCE_TANGENT < smallest / 100, `${FENCE_TANGENT} against ${smallest.toExponential(2)}`);
   }
 
   /**

@@ -68,6 +68,15 @@ const _co = new THREE.Vector3();
  * `STUCK_SPEED_MS` is src/wanted.js's `SCENE_STOP_MS`, the same way: this file's own statement
  * of "not moving", gated against that one.
  */
+/**
+ * THE REST HOLD (see step()): under this planar speed, with no throttle and every wheel down, the car
+ * is held still. 2 cm/s is four times the 4.9 mm/s a parked car crawled without it, so the crawl
+ * cannot sustain itself, and 0.072 km/h is far below anything a player reads or a gate thresholds on
+ * (the slowest, SCENE_STOP_MS, is 1.0 m/s). The yaw bound is the same idea for the drift it rode on,
+ * 3.8e-5 rad/s against 0.01.
+ */
+export const REST_HOLD_MS = 0.02;
+export const REST_HOLD_W = 0.01;
 export const STUCK_HOLD_S = 4.0;
 export const STUCK_THROTTLE = 0.5;
 export const STUCK_SPEED_MS = 1.0;
@@ -151,6 +160,10 @@ export class Vehicle {
     this.throttle = 0;
     this.brake = 0;
     this.handbrake = false;
+    // The rest hold's speed (see REST_HOLD_MS and step()). Per instance so a gate can take it away and
+    // measure the crawl it removes; 0 turns it off.
+    this.restHoldMs = REST_HOLD_MS;
+    this.restHeld = 0;
 
     /**
      * Collision restitution and wall friction. 0.15 is a plastic crash: a car hitting
@@ -380,6 +393,26 @@ export class Vehicle {
       const tilt = new THREE.Vector3(0, 1, 0).applyQuaternion(this.quaternion);
       const corrective = tilt.clone().cross(up).multiplyScalar(2.4 * dt);
       this.angularVelocity.add(corrective);
+    }
+
+    // A PARKED CAR STAYS PARKED. The tyres resist motion viscously (`-vLong * 22`, and the lateral
+    // term scales with vLat), so they have no static friction: whatever small force is left over at
+    // rest becomes a steady crawl at the speed where drag balances it. Measured on perfectly flat
+    // ground with no input: 4.9 mm/s, 0.546 m over 115 s at every yaw (it is in the car's own frame),
+    // with a yaw drift of -3.8e-5 rad/s, every tyre at slip 9e-4. In the district at the corridor
+    // camera's focus the same car crawled 3.8 mm/s, and the sun's shadow box follows that focus: until
+    // its depth axis was snapped too (BACKLOG #124's last item) the crawl re-rasterised contact edges
+    // by 1-6 levels every frame of a still scene, and with every axis snapped it still walks the whole
+    // map one texel every 0.117 m / 4.9 mm/s = 24 s. On foot, focus still, the same clip is identical.
+    // A real car in Park holds. So with no throttle, every wheel down and the car already moving
+    // slower than REST_HOLD_MS, the planar velocity and the yaw rate are cleared BEFORE the
+    // integration below, which is the only place they become motion. Throttle in either direction
+    // releases it, and the suspension's vertical motion is untouched.
+    if (groundedWheels === this.wheels.length && this.throttle === 0
+      && Math.hypot(this.velocity.x, this.velocity.z) < this.restHoldMs
+      && Math.abs(this.angularVelocity.y) < REST_HOLD_W) {
+      this.velocity.x = 0; this.velocity.z = 0; this.angularVelocity.y = 0;
+      this.restHeld++;
     }
 
     // Integrate.

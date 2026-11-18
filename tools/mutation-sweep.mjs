@@ -530,6 +530,27 @@ const MUTATIONS = [
     to: '      t *= 1;',
     why: 'reverse has no speed ceiling',
   },
+  {
+    /**
+     * TAKES THE REST HOLD AWAY. Nothing errors and every drive is untouched — the hold acts only
+     * under 2 cm/s with no throttle — so what comes back is a parked car crawling 4.9 mm/s (9.4 at
+     * a 60 Hz step), and with it the sun's shadow box walking under a still scene.
+     */
+    id: 'rest-hold-off', file: 'src/vehicle.js',
+    find: '    this.restHoldMs = REST_HOLD_MS;',
+    to: '    this.restHoldMs = 0;',
+    why: 'a parked car crawls half a metre every two minutes',
+  },
+  {
+    /**
+     * THE HOLD IGNORES THE THROTTLE, so a car at rest can never pull away: every step starts under
+     * 2 cm/s and is cleared. The release is the half of the rule a hold that "works" can lose.
+     */
+    id: 'rest-hold-throttle', file: 'src/vehicle.js',
+    find: '    if (groundedWheels === this.wheels.length && this.throttle === 0',
+    to: '    if (groundedWheels === this.wheels.length && true',
+    why: 'a parked car cannot be driven off',
+  },
   // ---- src/hud.js
   {
     /**
@@ -590,9 +611,35 @@ const MUTATIONS = [
      * to explain where the band's verb comes from. A `find` that a COMMENT can satisfy is one
      * explanatory sentence away from mutating nothing, or from mutating the comment.
      */
-    find: 'if (throttle !== 0 && Math.sign(throttle) * dot > 0) throttle = 0;',
-    to: 'if (throttle !== 0 && true) throttle = 0;',
+    // Repointed by the rest hold's round: the refusal reads the band's two predicates now
+    // (FENCE_TANGENT), so the row refuses both directions of throttle whatever they say.
+    find: '  if ((throttle > 0 && noseOut) || (throttle < 0 && noseIn)) throttle = 0;',
+    to: '  if (throttle !== 0) throttle = 0;',
     why: 'the world fence refuses power in both directions and strands the car outside',
+  },
+  {
+    /**
+     * THE TANGENT BACK TO A POINT. A settled car's own pitch and roll swing its nose a few 1e-8 off
+     * the heading it was placed at, so with `dot > 0` a car parked exactly along the fence reads as
+     * pointing out, forward is refused, the rest hold keeps it still, and it never gets moving: the
+     * six tours that start at rest on the tangent read an arc of 0 m. It was hidden for as long as
+     * a parked car crept, because the creep turned the nose a hair inward within seconds.
+     */
+    id: 'fence-tangent-point', file: 'src/blockers.js',
+    find: '  const noseOut = dot > FENCE_TANGENT, noseIn = dot < -FENCE_TANGENT;',
+    to: '  const noseOut = dot > 0, noseIn = dot < 0;',
+    why: 'a car parked along the world fence can never drive off it',
+  },
+  {
+    /**
+     * THE BAND SIZED OFF THE QUATERNION'S NOISE, which is the first version of it: 1e-9 is five
+     * million times the 6.1e-17 a nose built exactly tangential reads, and 1/50 of the 5e-8 the
+     * suspension swings it by, so it holds the wrong noise and the tours still read 0 m.
+     */
+    id: 'fence-tangent-quat', file: 'src/blockers.js',
+    find: 'export const FENCE_TANGENT = 1e-6;',
+    to: 'export const FENCE_TANGENT = 1e-9;',
+    why: 'the tangent band is narrower than a parked car\'s own nose swing',
   },
   // ---- src/roadpath.js
   {

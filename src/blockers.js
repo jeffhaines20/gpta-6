@@ -756,6 +756,27 @@ export const FENCE_BRAKE_MS = 0.25;
 export const FENCE_CRAWL_MS = 2.2;
 /** cos 45 degrees: past this, the velocity is more inward than tangential. See FENCE_CRAWL_MS. */
 const FENCE_HOMING_COS = Math.SQRT1_2;
+/**
+ * THE TANGENT IS A BAND, NOT A POINT, and the band is sized by the car's own rest tilt. `dot` is the
+ * outward share of the nose, and a car standing on its wheels does not point where it was placed: the
+ * suspension settles it into a little pitch and roll, and pitch and roll together turn the nose's
+ * horizontal heading by their product. Measured on flat ground over 24 placement yaws with the rest
+ * hold on (src/vehicle.js, REST_HOLD_MS): the nose swings by at most 2.1e-8 at rest and 5.5e-8 when
+ * the throttle is held while the wheels touch down, which is what blocker-test's tours do. Any
+ * positive swing read as "outward" and refused forward at the one pose blocker-test says must not
+ * be — "the tangent itself is not refused, or a stationary car could never get moving" — and that
+ * check passed because it hands the fence an exact (0, 1). What hid the difference was the crawl the
+ * hold removes: a parked car crept 4.9 mm/s with a yaw drift, which turned a tangential nose a hair
+ * inward within seconds, so the six tours that start at rest on the tangent only ever moved because
+ * of it. With the crawl gone and no band they read an arc of 0 m.
+ *
+ * 1e-6 is 18x the worst rest swing and 1/1000 of sin 0.06 degrees, the smallest outward nose
+ * blocker-test requires refused; a car that is "tangent" inside it and drives at the crawl leaves at
+ * 2.2e-6 m/s. A first version used 1e-9, sized off the QUATERNION's noise (6.1e-17 on a nose built
+ * exactly tangential) rather than the suspension's, and the tours still read 0 m. blocker-test
+ * measures the swing itself and asserts both margins.
+ */
+export const FENCE_TANGENT = 1e-6;
 
 /**
  * THE FENCE'S BAND TENANT, and it lives here because the verb is derived from the same quantity
@@ -778,7 +799,7 @@ const FENCE_HOMING_COS = Math.SQRT1_2;
  * is no speed to steer with. The only control that moves the car is reverse, and the band said
  * "TURN BACK" while `composeStuck` one priority away already knew the word.
  *
- * `noseOut` IS the predicate `Math.sign(throttle) * dot > 0` refuses on, published by `worldFence`
+ * `noseOut` IS the predicate forward throttle is refused on, published by `worldFence`
  * for this purpose — so the verb flips where the refusal does, by construction rather than by a
  * threshold somebody picked. The playtester's 89/91 boundary is that sign change, measured from
  * outside.
@@ -825,7 +846,12 @@ export function worldFence(bounds, x, z, fwdX, fwdZ, vx, vz, controls) {
   // outward angle builds outward speed for a controller that then has a faster car to turn. The
   // hard refusal only lets the car move once it is pointing home, which is what recovers it. Their
   // OBSERVATION was exact and their proposed lever was the wrong one; CLAUDE.md's own rule.
-  if (throttle !== 0 && Math.sign(throttle) * dot > 0) throttle = 0;
+  //
+  // THE TANGENT IS A BAND (FENCE_TANGENT): forward is refused for a nose MORE than a hair outward,
+  // reverse for one more than a hair inward, and both from the same two predicates the band's verb
+  // reads, so the word and the refusal cannot disagree at any angle.
+  const noseOut = dot > FENCE_TANGENT, noseIn = dot < -FENCE_TANGENT;
+  if ((throttle > 0 && noseOut) || (throttle < 0 && noseIn)) throttle = 0;
 
   const outV = nx * (vx ?? 0) + nz * (vz ?? 0);
   const speed = Math.hypot(vx ?? 0, vz ?? 0);
@@ -882,7 +908,7 @@ export function worldFence(bounds, x, z, fwdX, fwdZ, vx, vz, controls) {
      * One expression, read by the refusal above and by the band's verb, so they cannot disagree at
      * any angle rather than agreeing at the ones somebody sampled.
      */
-    noseOut: dot > 0,
+    noseOut,
     // Which term is holding the car, so a gate and a reader can tell them apart.
     leavingK: +leavingK.toFixed(3), crawlK: +crawlK.toFixed(3) };
 }
