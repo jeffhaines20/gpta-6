@@ -6503,9 +6503,9 @@ says the pair is registered. `docs/shots/blind/` (untracked), four pairs, A is t
 **The gates.** `boot-check`, BOOT_PORT 8283 at 03844bd: `BOOT: PASS — 127 checks in 926 s`, opening `BOOT CHECK / dom in
 0.7 s`. Its photocell lines read the boot hour at 1,602.6 lux (sky 1,575.1 on one path), x99.3 the turn-on, every
 street lamp off with the cars on and no flag; night at 0.4 lux with ten pool lights lit by the host; and back at dusk
-1,623.9 lux (sky 1,596.5), dark again. The boot reading is 1.3% under the re-applied one because the dome's PMREM at
-first boot is not yet the one apply()'s synchronous refresh builds — the same 1,596.5 the probe and hero-shots read;
-either way x99-100. The offline list's 34 node gates: `34 of 34 green in 142 s` (photocell 11 checks in 0.27 s,
+1,623.9 lux (sky 1,596.5), dark again. The first-boot reading is 1.3% under the re-applied one, which is the
+1,596.5 the probe and hero-shots read after their own apply(); what the dome's integral holds at first boot that
+it does not after a re-apply was not traced. Either way x99-100. The offline list's 34 node gates: `34 of 34 green in 142 s` (photocell 11 checks in 0.27 s,
 its selftest 13).
 
 **Still to land in this entry** — the offline list's browser half, `daynight-sweep`, and the nine rows.
