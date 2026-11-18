@@ -60,6 +60,18 @@ if (SELFTEST) {
     alphas.map((a) => `${a}:${tagOf(a)}`).join(' '));
   check('...and keeps untagged APART from a tagged share 0, which the composite does not need to',
     tagOf(-1) === 0 && tagOf(1) === -1 && tagOf(0) === -1);
+  // #145: the bright pass reads a covered leaf's tag as lit, and the composite does not need to (its
+  // AO applies to a leaf as to any lit surface). The JS carries the value as a literal, so it is
+  // compared with the export here, at the value and either side of the shader's 0.01 band.
+  const { COVERAGE_LIT_TAG: LT } = await import('../src/post.js');
+  check('brightShareOf reads src/post.js COVERAGE_LIT_TAG as lit, share 0, and nothing 0.02 either side of it',
+    brightShareOf(LT) === 0 && brightShareOf(LT + 0.02) === -1 && brightShareOf(LT - 0.02) === -1 && brightShareOf(1) === -1,
+    `${LT}:${brightShareOf(LT)} ${LT + 0.02}:${brightShareOf(LT + 0.02)} ${LT - 0.02}:${brightShareOf(LT - 0.02)} 1:${brightShareOf(1)}`);
+  check('...which the composite leaves untagged, so a leaf keeps its AO',
+    emitShareFromAlpha(LT) === 0 && tagOf(LT) === -1, `composite share ${emitShareFromAlpha(LT)}, tagOf ${tagOf(LT)}`);
+  const leafPx = classify(Float32Array.from([0.5, 0.5, 0.5, LT]), 1, 1, { exposure: 1, threshold: 0.1, softKnee: 0.6 });
+  check('...and classify counts it as lit light, as the bright pass splits it',
+    leafPx.pixels.litTagged === 1 && leafPx.pixels.untagged === 0, JSON.stringify(leafPx.pixels));
 
   const P = { exposure: 1, threshold: 0.118, softKnee: 0.6 };
   const T = P.threshold;
@@ -136,7 +148,7 @@ if (SELFTEST) {
     bars.map((b) => b.lit.toFixed(4)).join(' > '));
 
   const failed = checks.filter((x) => !x.ok).length;
-  const CHECK_COUNT = 19;
+  const CHECK_COUNT = 22;   // 19, and three for #145's covered-leaf tag
   const counted = checks.length === CHECK_COUNT;
   console.log(`\nBLOOM SOURCE SELFTEST: ${failed || !counted ? 'FAIL' : 'PASS'} — ${checks.length} checks` +
     `${counted ? '' : ` (expected ${CHECK_COUNT})`}, ${failed} failed`);
