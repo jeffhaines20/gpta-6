@@ -113,7 +113,7 @@ export function encodeByte(x) {
   const e = z <= 0.0031308 ? 12.92 * z : 1.055 * z ** (1 / 2.4) - 0.055;
   return Math.max(0, Math.min(255, Math.round(255 * e)));
 }
-export function detectLinear(L, w, h, up = 2) {
+export function detectLinear(L, w, h, up = 2, truth = null) {
   const W2 = w * up, H2 = h * up;
   const data = new Uint8Array(W2 * H2 * 3);
   for (let y = 0; y < H2; y++) {
@@ -123,8 +123,37 @@ export function detectLinear(L, w, h, up = 2) {
     }
   }
   const d = detect({ width: W2, height: H2, channels: 3, data }, { transfer: 'aces' });
-  return d.ok ? { ok: true, glassBR: d.glassBR, wallBR: d.wallBR, shift: d.shift, paneWall: d.paneWall }
-    : { ok: false, why: d.why.join('; ') };
+  // Whether or not it scores the view, what it CALLED glass is checkable against the shader's mask.
+  const agree = truth ? detectorAgreement(d.cls, truth, w, h, up, d.hr) : null;
+  return d.ok ? { ok: true, glassBR: d.glassBR, wallBR: d.wallBR, shift: d.shift, paneWall: d.paneWall, agree }
+    : { ok: false, why: d.why.join('; '), agree };
+}
+
+/**
+ * IS THE PHOTOGRAPHS' DETECTOR READING GLASS ON THIS FRAME? pane-tint finds a pane as an opening dark
+ * against its wall - true of the photographs, and the reason its 0.804 means "glazing" there. On an
+ * engine frame the packed texel says what is glass exactly, so the detector's own "pane" class can be
+ * scored: PRECISION is the share of its pane pixels that are glass by the shader's mask, RECALL the
+ * share of the glass above its horizon that it called pane, and `hist` where the rest of its panes
+ * fell (glaz-probe's classes: 0 not a facade, 1 glass, 2 wall, 3 sky, 4 shopfront glass). `det` is its
+ * class map at `up` x the truth's resolution, and a map of any other size THROWS: reading a 2x map at
+ * 1x scores a quarter of the frame against the wrong pixels and returns a plausible number.
+ */
+export function detectorAgreement(det, truth, w, h, up, hr) {
+  if (det.length !== w * h * up * up || truth.length !== w * h) {
+    throw new Error(`detectorAgreement: maps of ${det.length} and ${truth.length} for ${w}x${h} at ${up}x`);
+  }
+  const W2 = w * up, H2 = h * up, hist = [0, 0, 0, 0, 0];
+  let pane = 0, glass = 0, glassHit = 0;
+  for (let y = 0; y < H2; y++) {
+    for (let x = 0; x < W2; x++) {
+      const j = y * W2 + x, t = truth[((y / up) | 0) * w + ((x / up) | 0)];
+      if (det[j] === 1) { pane++; if (t <= 4) hist[t]++; }
+      if (y <= hr && t === 1) { glass++; if (det[j] === 1) glassHit++; }
+    }
+  }
+  return { precision: pane ? hist[1] / pane : NaN, recall: glass ? glassHit / glass : NaN, panePx: pane,
+    hist: hist.map((v) => (pane ? v / pane : 0)) };
 }
 
 const median = (a) => {
@@ -194,6 +223,28 @@ function selftest() {
     ck('pooled() weighs by pixel: 4000 px at B/R 2 and 5 px at 0.5 pool to 1.998, not the 1.25 a ratio mean gives',
       Math.abs(P.glassBR - (4000 * 0.1 + 5 * 0.025) / (4005 * 0.05)) < 1e-9 && P.glassBR > 1.99, P.glassBR.toFixed(4));
   }
+  // detectorAgreement, on maps whose answer is built in. Truth: a 10x10 glass block in a 20x20 wall.
+  {
+    const tw = 20, th = 20, up = 2, truthM = new Uint8Array(tw * th);
+    for (let y = 0; y < th; y++) for (let x = 0; x < tw; x++) truthM[y * tw + x] = x >= 5 && x < 15 && y >= 5 && y < 15 ? 1 : 2;
+    const upMap = (fn) => { const o = new Uint8Array(tw * th * up * up); for (let y = 0; y < th * up; y++) for (let x = 0; x < tw * up; x++) o[y * tw * up + x] = fn(x, y); return o; };
+    const exact = detectorAgreement(upMap((x, y) => truthM[((y / up) | 0) * tw + ((x / up) | 0)] === 1 ? 1 : 2), truthM, tw, th, up, th * up);
+    ck('detectorAgreement: a detector that finds exactly the glass reads precision 1, recall 1',
+      exact.precision === 1 && exact.recall === 1, `${exact.precision} / ${exact.recall}`);
+    // Half its panes are wall: the 100 px glass block, and the five full rows of wall under it (100 px).
+    const half = detectorAgreement(upMap((x, y) => { const tx = (x / up) | 0, ty = (y / up) | 0; return (ty >= 5 && ty < 15 && tx >= 5 && tx < 15) || ty >= 15 ? 1 : 2; }), truthM, tw, th, up, th * up);
+    ck('and one whose pane class is half wall reads precision 0.5, recall 1, hist wall 0.5',
+      Math.abs(half.precision - 0.5) < 1e-12 && half.recall === 1 && Math.abs(half.hist[2] - 0.5) < 1e-12,
+      `${half.precision} / ${half.recall} / wall ${half.hist[2]}`);
+    // KNOWN-BAD: the detector's 2x map handed over as if it were 1x. Must throw, not score the wrong pixels.
+    let threw2 = false;
+    try { detectorAgreement(new Uint8Array(tw * th), truthM, tw, th, up, th * up); } catch { threw2 = true; }
+    ck('KNOWN-BAD a class map at the wrong resolution throws rather than scoring the wrong pixels', threw2, String(threw2));
+    // KNOWN-BAD: a detector that finds nothing reads NaN precision - "no reading", never a perfect score.
+    const none = detectorAgreement(upMap(() => 2), truthM, tw, th, up, th * up);
+    ck('KNOWN-BAD a detector with no panes reads NaN precision and recall 0, not 100%',
+      Number.isNaN(none.precision) && none.recall === 0, `${none.precision} / ${none.recall}`);
+  }
   // The forward encode must be what TRANSFER.aces inverts, or every detector reading is off by the
   // mismatch: round-trip a range of ACES inputs, inside 2% where 8 bits can resolve it.
   let rt = 0;
@@ -244,12 +295,12 @@ if (IS_MAIN && !process.argv.includes('--selftest')) {
     row.predictedMid = frameStats(S(0.5, 0.25), cls, cap.w, cap.h);
     for (const s of grid.s) for (const K of grid.K) row.grid[`${s}|${K}`] = frameStats(S(s, K), cls, cap.w, cap.h);
     // The photograph's own detector, like for like, on the measured off arm and on each picked point.
-    row.detect = { off: detectLinear(arms.off, cap.w, cap.h) };
+    row.detect = { off: detectLinear(arms.off, cap.w, cap.h, 2, cls) };
     for (const [ps, pk] of PICKS) {
       const L = S(ps, pk);
       row.pick = row.pick ?? {};
       row.pick[`${ps}|${pk}`] = frameStats(L, cls, cap.w, cap.h);
-      row.detect[`${ps}|${pk}`] = detectLinear(L, cap.w, cap.h);
+      row.detect[`${ps}|${pk}`] = detectLinear(L, cap.w, cap.h, 2, cls);
     }
     rows.push(row);
     process.stderr.write('.');
@@ -294,6 +345,13 @@ if (IS_MAIN && !process.argv.includes('--selftest')) {
       const m = (k) => median(okd.map((d) => d[k]));
       console.log(`  ${key.padEnd(10)} scored ${okd.length} of ${D.length}   glass B/R ${f3(m('glassBR'))}   wall B/R ${f3(m('wallBR'))}   `
         + `shift ${f3(m('shift'))}   pane:wall ${f3(m('paneWall'))}`);
+      // Over EVERY view, scored or refused: what its pane class holds, by the shader's own mask.
+      const A = D.map((d) => d?.agree).filter(Boolean);
+      const ma = (fn) => median(A.map(fn));
+      console.log(`  ${''.padEnd(10)} is it glass? its pane class is ${(100 * ma((a) => a.precision)).toFixed(0)}% glass by the packed texel `
+        + `(${(100 * ma((a) => a.hist[2])).toFixed(0)}% wall, ${(100 * ma((a) => a.hist[0])).toFixed(0)}% not a facade), and it finds `
+        + `${(100 * ma((a) => a.recall)).toFixed(0)}% of the glass   (medians over ${A.length} views; worst precision `
+        + `${(100 * Math.min(...A.map((a) => (Number.isFinite(a.precision) ? a.precision : 1)))).toFixed(0)}%)`);
       if (key !== 'off') {
         const T = R.map((r) => r.pick[key]);
         const t = (k) => median(T.map((x) => x[k]));
