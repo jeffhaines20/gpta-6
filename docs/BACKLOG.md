@@ -6551,6 +6551,18 @@ district/main.js, on its own port:
 
 So nine rows, nine caught, none by a timing line, and the tree clean after every one.
 
+**The pool's price at dusk, in the frame's own units.** In the gate's units it was nothing: the ten lights carry no
+shadow maps, and the captures' audits read draw calls and triangles identical between the arms at both hours. Its
+cost was per FRAGMENT. three counts only the lights it can see (`traverseVisible` -> `pushLight`, and the pool hides
+a light it switches off) and keys every lit program on `numPointLights`, so the loop length is read straight off the
+compiled fragment shaders, `uniform PointLight pointLights[ N ]` (a scratch probe, not committed): at the boot hour
+the base build's 20 lit programs ALL carried a ten-light loop — every lit fragment of the dusk frame evaluated ten
+point lights, for a pool that put 0.66% of the meter's light and 0.11% of the frame's luminance on the street — and
+this build's 20 carry none. The cost moves rather than vanishes: this build's first switch to night compiles 32
+programs (the 20 lit ones again with the loop, and 12 unlit) where the base compiled none, because the pool's on/off
+boundary moved from golden|dusk to dusk|night; by the same mechanism the base pays it on its first switch to noon or
+golden (not measured). Not timed: a SwiftShader frame is not a GPU's.
+
 **The decision.** The street lamps are OFF at the dusk preset, by a photocell computed off the light the hour
 delivers, because every number above says a real one would be: x100 its turn-on on the page, x35 under the
 heaviest weather, x24 even through the HemisphereLight's quarter of the sky offline. The cars keep `lampsOn`,
@@ -6647,7 +6659,9 @@ a utility's specification and a listed product's sheet, both citing it. Which po
 The emitter behind the "pavement" components at corridor (the raycast lands on the sidewalk). The receive-shadow
 change and a neutral base colour, each priced above and neither made. The fivepoints base meter (void, see above).
 Noon and golden hour, which the change cannot reach (the cell and `lampsOn` both off there, before and after —
-the gate's noon and golden rows), so they were not captured.
+the gate's noon and golden rows), so they were not captured. The seven offline rows under `--browser`, so whether
+boot-check's arm also catches them is unmeasured. The frame time the ten-light loop cost (see the price above). Why
+the first-boot cell reads 1.3% under a re-applied one. The blind set's verdict: it is built and not yet reviewed.
 
 **Filed from this round, measured and not fixed** (inside #142 rather than as new numbers: another branch has
 already filed a #145):
