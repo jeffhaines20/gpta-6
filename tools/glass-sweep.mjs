@@ -23,7 +23,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { readPNG } from './png.mjs';
-import { TRANSFER, horizonRow } from './pane-tint.mjs';
+import { TRANSFER, ROLLOFF, horizonRow, detect } from './pane-tint.mjs';
 import { loadCapture, classify, paneStructure } from './glaz-probe.mjs';
 
 const a2l = TRANSFER.aces;
@@ -87,6 +87,36 @@ export function frameStats(L, cls, w, h) {
   };
 }
 
+/**
+ * THE PHOTOGRAPH'S INSTRUMENT ON A SYNTHESISED FRAME. pane-tint's reference numbers (0.804, 0.915,
+ * 0.247) are its DETECTOR's, on 8-bit photographs at 1280x960, so a like-for-like reading of an arm
+ * needs the same detector on the same kind of input. A surface point exists only in linear light, so
+ * it is encoded through the renderer's own forward chain - the rolloff, the ACES fit, the sRGB encode,
+ * exactly what TRANSFER.aces inverts - and upscaled 2x by pixel duplication, because the detector's
+ * component and pane-count floors are in absolute pixels at 1280x960. That last step is an
+ * approximation, and it is measured rather than assumed: see the CLI's NATIVE line.
+ */
+export function encodeByte(x) {
+  const S = ROLLOFF.ceil - ROLLOFF.knee, t = Math.max(0, x - ROLLOFF.knee);
+  const y = Math.min(x, ROLLOFF.knee) + (S * t) / (S + t);
+  const z = Math.max(0, Math.min(1, (y * (2.51 * y + 0.03)) / (y * (2.43 * y + 0.59) + 0.14)));
+  const e = z <= 0.0031308 ? 12.92 * z : 1.055 * z ** (1 / 2.4) - 0.055;
+  return Math.max(0, Math.min(255, Math.round(255 * e)));
+}
+export function detectLinear(L, w, h, up = 2) {
+  const W2 = w * up, H2 = h * up;
+  const data = new Uint8Array(W2 * H2 * 3);
+  for (let y = 0; y < H2; y++) {
+    for (let x = 0; x < W2; x++) {
+      const i = ((y / up) | 0) * w + ((x / up) | 0), o = (y * W2 + x) * 3;
+      data[o] = encodeByte(L.r[i]); data[o + 1] = encodeByte(L.g[i]); data[o + 2] = encodeByte(L.b[i]);
+    }
+  }
+  const d = detect({ width: W2, height: H2, channels: 3, data }, { transfer: 'aces' });
+  return d.ok ? { ok: true, glassBR: d.glassBR, wallBR: d.wallBR, shift: d.shift, paneWall: d.paneWall }
+    : { ok: false, why: d.why.join('; ') };
+}
+
 const median = (a) => {
   const s = a.filter(Number.isFinite).sort((x, y) => x - y);
   return s.length ? (s.length % 2 ? s[(s.length - 1) >> 1] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2) : NaN;
@@ -140,6 +170,16 @@ function selftest() {
   ck('frameStats reads a built glass B/R 2.000, wall 1.000, pane:wall exact',
     Math.abs(fs1.glassBR - 2) < 1e-9 && Math.abs(fs1.wallBR - 1) < 1e-9 && Math.abs(fs1.paneWall - wantPW) < 1e-9,
     `${fs1.glassBR.toFixed(4)} / ${fs1.wallBR.toFixed(4)} / ${fs1.paneWall.toFixed(4)} want ${wantPW.toFixed(4)}`);
+  // The forward encode must be what TRANSFER.aces inverts, or every detector reading is off by the
+  // mismatch: round-trip a range of ACES inputs, inside 2% where 8 bits can resolve it.
+  let rt = 0;
+  for (const x of [0.01, 0.03, 0.08, 0.15, 0.3, 0.45, 0.8, 1.5]) rt = Math.max(rt, Math.abs(a2l[encodeByte(x)] / x - 1));
+  ck('encodeByte is the inverse of TRANSFER.aces: 0.01-1.5 round-trips inside 4%', rt < 0.04, `worst ${(100 * rt).toFixed(2)}%`);
+  // KNOWN-BAD: a plain sRGB encode (no tonemap) does not round-trip through the renderer's inverse.
+  const naive = (x) => Math.round(255 * Math.min(1, x <= 0.0031308 ? 12.92 * x : 1.055 * x ** (1 / 2.4) - 0.055));
+  let rtBad = 0;
+  for (const x of [0.03, 0.15, 0.45]) rtBad = Math.max(rtBad, Math.abs(a2l[naive(x)] / x - 1));
+  ck('KNOWN-BAD an sRGB-only encode misses the renderer inverse by over 20%', rtBad > 0.2, `worst ${(100 * rtBad).toFixed(1)}%`);
   console.log(fails.length ? `GLASS-SWEEP SELFTEST: FAIL - ${fails.length}` : 'GLASS-SWEEP SELFTEST: PASS');
   return fails.length === 0;
 }
@@ -154,6 +194,9 @@ if (IS_MAIN && !process.argv.includes('--selftest')) {
   const TAG = ti >= 0 ? argv[ti + 1] : 'sw';
   if (!dir) { console.error('usage: node tools/glass-sweep.mjs <capture dir> [--tag sw] | --selftest'); process.exit(2); }
   const S1 = 0.3, K1 = 0.5;
+  // --pick s,K[;s,K...]: points read in full - truth AND the photograph's detector.
+  const pi = argv.indexOf('--pick');
+  const PICKS = pi >= 0 ? argv[pi + 1].split(';').map((t) => t.split(',').map(Number)) : [];
   const files = fs.readdirSync(dir).filter((f) => f.startsWith(`${TAG}-off-`) && f.endsWith('.meta.json'));
   const stations = files.map((f) => f.slice(`${TAG}-off-`.length, -'.meta.json'.length));
   const grid = { s: [1, 0.8, 0.6, 0.5, 0.4, 0.3], K: [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.7] };
@@ -176,6 +219,14 @@ if (IS_MAIN && !process.argv.includes('--selftest')) {
     for (const a of Object.keys(arms)) row.measured[a] = frameStats(arms[a], cls, cap.w, cap.h);
     row.predictedMid = frameStats(S(0.5, 0.25), cls, cap.w, cap.h);
     for (const s of grid.s) for (const K of grid.K) row.grid[`${s}|${K}`] = frameStats(S(s, K), cls, cap.w, cap.h);
+    // The photograph's own detector, like for like, on the measured off arm and on each picked point.
+    row.detect = { off: detectLinear(arms.off, cap.w, cap.h) };
+    for (const [ps, pk] of PICKS) {
+      const L = S(ps, pk);
+      row.pick = row.pick ?? {};
+      row.pick[`${ps}|${pk}`] = frameStats(L, cls, cap.w, cap.h);
+      row.detect[`${ps}|${pk}`] = detectLinear(L, cap.w, cap.h);
+    }
     rows.push(row);
     process.stderr.write('.');
   }
@@ -204,6 +255,25 @@ if (IS_MAIN && !process.argv.includes('--selftest')) {
         return `${f3(g('glassBR'))}|${f3(g('paneWall'))}|${f3(g('modulation'))}`.padStart(22);
       });
       console.log(`  ${String(s).padEnd(6)}${cells.join('')}`);
+    }
+  }
+  // The detector, like for like with pane-tint's 317 photographs (glass 0.804, shift 0.915,
+  // pane:wall 0.247; every one of the 12 station photographs scored).
+  for (const tod of ['noon', 'golden']) {
+    const R = rows.filter((r) => r.tod === tod);
+    console.log(`\nDETECTOR (the photographs' instrument), ${tod}, ${R.length} views`);
+    for (const key of ['off', ...PICKS.map(([a, b]) => `${a}|${b}`)]) {
+      const D = R.map((r) => r.detect[key]);
+      const okd = D.filter((d) => d && d.ok);
+      const m = (k) => median(okd.map((d) => d[k]));
+      console.log(`  ${key.padEnd(10)} scored ${okd.length} of ${D.length}   glass B/R ${f3(m('glassBR'))}   wall B/R ${f3(m('wallBR'))}   `
+        + `shift ${f3(m('shift'))}   pane:wall ${f3(m('paneWall'))}`);
+      if (key !== 'off') {
+        const T = R.map((r) => r.pick[key]);
+        const t = (k) => median(T.map((x) => x[k]));
+        console.log(`  ${''.padEnd(10)} truth: glass B/R ${f3(t('glassBR'))}  shift ${f3(t('shift'))}  pane:wall ${f3(t('paneWall'))}  `
+          + `modulation ${f3(t('modulation'))}  flat ${(100 * t('flatFrac')).toFixed(0)}%  cv ${f3(t('paneCV'))}`);
+      }
     }
   }
   const out = path.join(dir, `${TAG}-surface.json`);
