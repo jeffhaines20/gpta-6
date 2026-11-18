@@ -1015,7 +1015,13 @@ one program) and its `--selftest`; selftests for `glass-sweep` (with `detectorAg
 ALONE on a committed tree (63a141e), every one caught by the check written for it and none by a
 timing line: glass-room-leak, -default-on, glass-mirror-default, glass-mirror-ignored,
 glass-candidate-retuned, glass-room-unlit, -world-height, -flat, -tint-grey, -one-geometry and
--ceiling-in-pane (that last one by the selftest as well).
+-ceiling-in-pane (that last one by the selftest as well). The offline list, 56 gates, passes at 2e4c645
+in 204 s. boot-check read 122 of 124 on its first run, both failures in the wedged-car arm and neither
+about glass: the arm read a bust the arrest arm above had armed on its last frame as "no hold" (the
+host's sim loop runs `bustWatch` before the bust fires, and `bustReport()` rounds the armed 1e-9 to
+0.00), so the fade respawned the car off the pin mid-creep. It now awaits one frame before reading
+(ea32f1d, mechanism in its comment), and re-run reads 124 of 124 in 814 s - a run whose bust did not
+land in that window, so it shows the arm still works and does not exercise the fix.
 
 **Unmeasured, plainly.**
 - GPU time of the room's branch.
