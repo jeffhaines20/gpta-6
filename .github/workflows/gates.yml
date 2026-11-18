@@ -20,7 +20,11 @@ name: gates
 
 on:
   push:
-    branches: ['**']
+    # wip/** are builders' backup pushes, made after every commit so that a replaced container cannot
+    # lose work; nothing ships from them, and their work reaches these gates when it is merged into a
+    # branch that runs them. On 2026-11-17/18 they were 61 of the 69 runs this workflow made, each one
+    # a failure notification (see the geometry job's runner below for why every run failed).
+    branches-ignore: ['wip/**']
   pull_request:
   workflow_dispatch:
     inputs:
@@ -58,8 +62,18 @@ jobs:
 
   geometry:
     name: budget gate (draw calls + triangles gating, stall advisory)
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # PINNED, because `ubuntu-latest` moved to Ubuntu 26.04 and Playwright 1.56.1 (package-lock) has no
+    # Chromium for it: "ERROR: Playwright does not support chromium on ubuntu26.04-x64". Every run from
+    # #484 (2026-11-04) failed at "Install Chromium" about a minute in, before any gate had run — 64
+    # failures to 2026-11-18, none of them a verdict about the build. 24.04 is where this job last
+    # passed (#462, 2026-10-19). Moving off it means a Playwright that supports the new image, which
+    # moves the bundled Chromium under every capture baseline, so that is its own round.
+    runs-on: ubuntu-24.04
+    # A hang detector, not a gate: no threshold reads it. The last pass took 22.5 of the 25 minutes
+    # this said (lighting sweep 6.1, budget drive 15.4), and the page has grown since, so 25 was a
+    # second budget rather than a net. The drive's own wall-clock cap (DRIVE_CAP_S, 1,500 s on the road
+    # course) is still what decides whether the course was driven.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
