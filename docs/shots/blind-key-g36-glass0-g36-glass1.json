@@ -1,0 +1,30 @@
+{
+ "generated": "2026-11-18T16:07:44.827Z",
+ "left": "g36-glass0",
+ "right": "g36-glass1",
+ "salt": "542b58d8ac76",
+ "unpairedLeft": [],
+ "unpairedRight": [],
+ "pairs": [
+  {
+   "id": "corridor-golden",
+   "A": "g36-glass1",
+   "B": "g36-glass0"
+  },
+  {
+   "id": "corridor-noon",
+   "A": "g36-glass0",
+   "B": "g36-glass1"
+  },
+  {
+   "id": "fivepoints-golden",
+   "A": "g36-glass0",
+   "B": "g36-glass1"
+  },
+  {
+   "id": "fivepoints-noon",
+   "A": "g36-glass1",
+   "B": "g36-glass0"
+  }
+ ]
+}

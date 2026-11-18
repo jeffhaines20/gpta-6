@@ -263,6 +263,19 @@ const OFFLINE = [
   // Milliseconds: #145's edge statistic on synthetic canopies, the instrument the reviewers' numbers
   // and leaf-cover's both go through.
   'leaf-edge --selftest',
+  // #36's page, about 7 s on a loaded box: one wall per glazed recipe through the REAL facade material
+  // into a float target. The room behind the glass is a ray cast in that material's fragment shader and
+  // its mirror lever a line after three's lights_physical_fragment, and nothing else on this list
+  // compiles a facade's shader at all: every glass row below is invisible to the rest of it. Its off
+  // arm is asserted against a replica of the pre-#36 material bit for bit, whole frame.
+  'glass-room',
+  'glass-room --selftest',
+  // Under a second each: the instruments #36's numbers rest on. glass-sweep reads a lever surface off
+  // an arms capture (its selftest is the synthesis on arrays whose answer is known); glaz-probe carries
+  // the flat-fill metric (paneStructure) with known-bad cases; pane-tint is the photograph detector.
+  'glass-sweep --selftest',
+  'glaz-probe --selftest',
+  'pane-tint --selftest',
 ];
 
 /**
@@ -3775,6 +3788,75 @@ const MUTATIONS = [
     find: '  float share = abs( s.a - ${COVERAGE_LIT_TAG.toFixed(1)} ) <= 0.01 ? 0.0 : -s.a - 1.0;',
     to: '  float share = -s.a - 1.0;',
     why: "the leaves carry their tag and the bright pass no longer reads it: the same night bloom as fol-lit-tag-off, with every alpha in the scene target still exactly what the gate's tag census expects",
+  },
+  // ---- #36: the room behind the facade glass and the mirror's strength (src/materials.js applyGlassRoom,
+  // src/facades.js glassRoomGeometry). Every one is a facade-shader or room-geometry defect that leaves
+  // the frame plausible, and glass-room is the only gate on this list that compiles a facade shader.
+  {
+    id: 'glass-room-leak', file: 'src/materials.js',
+    find: '  float gi = uGlassRoom * ${mask} * ( 1.0 - smoothstep( 0.55, 0.85, abs( grN.y ) ) );',
+    to: '  float gi = uGlassRoom * ( 1.0 - smoothstep( 0.55, 0.85, abs( grN.y ) ) );',
+    why: 'the glass mask dropped: every wall texel of every facade replaced by a room, the masonry turned to windows',
+  },
+  {
+    id: 'glass-room-default-on', file: 'src/materials.js',
+    find: '  uGlassRoom: { value: 0 },',
+    to: '  uGlassRoom: { value: 1 },',
+    why: 'the candidate switched on for the whole district before its blind review: every check that sets the lever itself still passes, so only "ships #36 OFF" and the untouched default against the replica see it',
+  },
+  {
+    id: 'glass-mirror-default', file: 'src/materials.js',
+    find: '  uGlassMirror: { value: 1 },',
+    to: '  uGlassMirror: { value: 0.4 },',
+    why: 'the build before quietly darkened: the room is still off so nothing reads as switched on, and every pane in the district has the candidate\'s F0; only the defaults check and the untouched default against the replica see it',
+  },
+  {
+    id: 'glass-mirror-ignored', file: 'src/materials.js',
+    find: '  material.specularColor *= 1.0 - grMask0 * ( 1.0 - uGlassMirror );',
+    to: '  material.specularColor *= 1.0;',
+    why: 'the mirror lever cut: the candidate\'s room still lights and every arm still differs, so a blind pair would compare a room against no room and credit the mirror; only "the mirror lever alone darkens the glass" sees it',
+  },
+  {
+    id: 'glass-candidate-retuned', file: 'src/materials.js',
+    find: 'export const GLASS_ROOM_CANDIDATE = Object.freeze({ room: 1, mirror: 0.4, rough: 1, k: 0.3 });',
+    to: 'export const GLASS_ROOM_CANDIDATE = Object.freeze({ room: 1, mirror: 0.6, rough: 1, k: 0.3 });',
+    why: 'the candidate quietly retuned after the measurement that chose it: every behaviour check still passes at 0.6, so only the restated levels see it',
+  },
+  {
+    id: 'glass-room-unlit', file: 'src/materials.js',
+    find: '    vec3 grEin = iblIrradiance + irradiance + grEdir;',
+    to: '    vec3 grEin = vec3( 3.0 );',
+    why: 'a room with its own light: plausible by day, and every window in the district glowing a lit room over the emissive at night',
+  },
+  {
+    id: 'glass-room-world-height', file: 'src/materials.js',
+    find: '    float vP = vMapUv.y * uGlassRoomGeo.w;',
+    to: '    float vP = grWorld.y;',
+    why: 'the room off world height instead of the texture: right on a building standing at y 0, a slab across the window on any other',
+  },
+  {
+    id: 'glass-room-flat', file: 'src/materials.js',
+    find: '    vec3 grRoom = alb * grEin * ( uGlassRoomK * exp( - depth / 2.4 ) ) * RECIPROCAL_PI;',
+    to: '    vec3 grRoom = vec3( 0.5 ) * grEin * uGlassRoomK * RECIPROCAL_PI;',
+    why: 'the ray cast replaced by one grey: every window a flat fill again, which still varies inside a pane by the coating gradient it is tinted with',
+  },
+  {
+    id: 'glass-room-tint-grey', file: 'src/materials.js',
+    find: '    vec3 grTint = clamp( diffuseColor.rgb / 0.25, 0.0, 1.5 );',
+    to: '    vec3 grTint = vec3( 1.0 );',
+    why: 'the glass transmits grey: every recipe\'s room the same colour, and bayTower\'s deliberately cool glazing warm',
+  },
+  {
+    id: 'glass-room-one-geometry', file: 'src/facades.js',
+    find: '    const g = glassRoomGeometry(m.recipe);',
+    to: '    const g = glassRoomGeometry(RECIPES.retailStrip);',
+    why: 'every recipe given the retail strip\'s floors: a tower\'s rooms 3.9 m tall behind 3.15 m windows',
+  },
+  {
+    id: 'glass-room-ceiling-in-pane', file: 'src/facades.js',
+    find: '    ceiling: Math.min(head + 0.12, fm - 0.02),',
+    to: '    ceiling: Math.min(head - 0.6, fm - 0.02),',
+    why: 'the ceiling hung 0.6 m below the window head: a slab across the top of every pane',
   },
 ];
 

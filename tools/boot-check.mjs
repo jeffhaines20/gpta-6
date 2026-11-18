@@ -2144,7 +2144,18 @@ if (state.global && state.frames > 2) {
      */
     d.setAutopilot(() => v.setControls({ throttle: 0, brake: 1, steer: 0, handbrake: false }));
     d.setTimeScale(8);
-    let drained = 0;
+    /**
+     * AND A BUST ARMED ON THE ARM ABOVE'S LAST FRAME READ AS NO HOLD AT ALL. The arrest arm breaks
+     * on the frame its bust lands, and the host's sim loop runs `bustWatch` BEFORE the wanted
+     * bridge fires 'busted' - so a bust in the last iteration of that frame leaves `bustedFor` at
+     * its armed 1e-9, which `bustReport()` publishes as `fadeFor` 0.00. Read without a frame in
+     * between, that is "no hold": on 2026-11-18 this arm drained 0 frames, read "BUSTED" three
+     * frames later, and the fade's respawnCar() moved the car off the pin mid-creep - "wrecked",
+     * 1 contact, both checks failed - where twelve runs on other trees that day drained 10 frames
+     * and passed. One braked frame here runs bustWatch eight times, so the hold reads as one.
+     */
+    await frame();
+    let drained = 1;
     while ((d.bustReport().fadeFor > 0 || d.wreckReport().heldFor > 0) && drained < 80) {
       await frame();
       drained++;

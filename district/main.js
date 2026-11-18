@@ -31,6 +31,7 @@ import {
   setSignageTime, spillMaterial, soffitMaterial, setSpillScale, setSoffitScale, spillScaleOf,
 } from '../src/signage.js';
 import { buildingStyle } from '../src/facades.js';
+import { setGlassRoom, glassRoomState } from '../src/materials.js';
 import { KerbFace } from '../src/kerb.js';
 import { CarContact, planFromCar } from '../src/carcontact.js';
 import { castAsSheet } from '../src/sheetshadow.js';
@@ -3050,6 +3051,11 @@ window.__district = {
   // an A/B or a level sweep is one page load. `setCarCabin(0)` is the build before it, bit for bit.
   setCarCabin: (k, opts) => setCabinGain(k, opts),
   carCabin: () => cabinGain(),
+  // #36, THE ROOM BEHIND THE FACADE GLASS (src/materials.js applyGlassRoom): three shared uniforms on
+  // every facade material, so an A/B or a sweep is one page load. `setFacadeGlass({ room: 0,
+  // mirror: 1 })` is the build before it, bit for bit; the call returns what the uniforms hold.
+  setFacadeGlass: (opts) => setGlassRoom(opts),
+  facadeGlass: () => glassRoomState(),
   // THE NUMBER PLATE'S FACE (src/carbody.js PLATE): one uniform on every car material. 0 is the blank
   // plate the face replaced, on the plate's new 12 x 6 in geometry — the shape is not switchable.
   setCarPlate: (k) => setPlateText(k),
