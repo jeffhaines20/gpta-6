@@ -84,7 +84,11 @@ for (const tod of ['noon', 'golden', 'dusk', 'night']) {
     const r = f && f.report ? f.report() : null;
     return r && r.parked ? r.parked : null;
   });
-  await page.screenshot({ path: `${OUT}/tod-${tod}.png`, timeout: 150000 });
+  // SWEEP_SHOT_TIMEOUT, hero-shots' HERO_SHOT_TIMEOUT for the same reason: on 2026-11-18, four cores at load ~10
+  // with other headless browsers alive, the NIGHT screenshot ran out its 150 s after noon, golden and dusk had
+  // landed, and the throw ended the gate before its night audit and its three negative tests. The bound is not
+  // part of any verdict here; only its length moved off the source.
+  await page.screenshot({ path: `${OUT}/tod-${tod}.png`, timeout: Number(process.env.SWEEP_SHOT_TIMEOUT ?? 150000) });
   results.push({ tod, audit, render, chunks: world.chunksLoaded, parked });
   console.log(`\n=== ${tod.toUpperCase()} ===`);
   console.log(JSON.stringify(audit, null, 1));
