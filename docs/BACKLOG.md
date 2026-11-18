@@ -4329,7 +4329,7 @@ the box snapped it is 0.02-0.06%, the level of a still car (0.06-0.10%)". That s
 
 **And the crawl is a defect of its own**: a parked car on perfectly flat ground creeps 4.9 mm/s with no
 input, 0.546 m in 115 s at every yaw, because the tyres resist motion only viscously and have no static
-friction. Filed and fixed separately.
+friction. Filed and fixed as #146, which found two fence checks that had only been passing because of it.
 
 The remaining three, as filed:
 - Night-sky specks carry 1-px straight bracket-like strokes: fivepoints night (241-248, 56-66) and
@@ -6428,3 +6428,71 @@ metre of a street lamp glow in a photograph, so the gradient runs the wrong way.
 none measured: the leaf cards' material does not take the LightPool's lights, or takes them with normals
 facing away; or the AO (whose broad darkening #141's review preferred) darkens the inner canopy and nothing
 lifts it. #139 moved lamps out of palm crowns; which species these two canopies are is not checked.
+
+### #146 FIXED — a parked car crept 4.9 mm/s, and two of the world fence's checks only passed because of it
+
+**Fixed.** `src/vehicle.js` holds a car that is under 2 cm/s (`REST_HOLD_MS`) with no throttle and every
+wheel down: the planar velocity and the yaw rate are cleared before the integration, which is the only
+place they become motion. Throttle in either direction releases it and the suspension's vertical motion
+is untouched. `physics-test` §7b, four headings:
+
+    parked 115 s, no input           hold on 0 m, 5e-13 rad      hold off 1.082 m, 6.0e-3 rad
+    full throttle 2 s from parked    9.312 m/s                   9.307 m/s
+    coasting down from 1.5 m/s       22.3219 m, held 0 steps     22.3220 m
+
+The crawl is 9.4 mm/s at that gate's 60 Hz step against 4.9 at the game's 120 Hz substep, so it moves
+with the step: it is what the integration leaves over, not a force anything in the car's model means.
+
+**Taking it away failed two of `blocker-test`'s fence checks, and both were defects the crawl had been
+covering.** Isolated one term at a time, the homing player's time home from each pose, 30 m out:
+
+    pose          old player, crawl   old player, held   new player, crawl   new player, held
+    tangential         142.5 s             never              10.6 s              10.6 s
+    +1 deg out         129.5               never              17.6                17.6
+    +6 deg out          76.3               never              15.0                15.0
+    -6 deg out         139.1               never               9.9                 9.9
+    +30 deg out         12.2               12.2               12.2                12.2
+    dead outward         6.7                6.7                6.7                 6.7
+    dead home            3.7                3.7                3.7                 3.7
+
+- **The homing player steered AWAY from home going forward.** A positive steer turns a nose on +z
+  toward +x (`src/vehicle.js` rotates each steered wheel about +y by the steer angle); the player's
+  forward branch took the sign of `fx*hz - fz*hx`, which is the opposite. On the tangential pose it
+  turned outward to +0.007 of dot, lost the throttle and stopped. It got home in two minutes only
+  because the crawl at full lock rotated the parked car about 11.5 degrees, past `ahead < -0.2`, where
+  the REVERSE branch (whose sign was right) backed it in. Same fence, same player, the crawl removed:
+  never. So what recovered those four poses was the crawl, and the section's own record — "with the
+  old code the four poses at and near tangential recovered from NONE of them inside 180 s" — was
+  measured through a player that could not recover them by driving. (Whether the round that wrote it
+  was also measuring the crawl, once its fix took the brake off a parked car, is the obvious reading
+  and was not measured.) The player now does what the HUD says (`composeFence`'s verb, which is the
+  fence's own `noseOut`) and steers the leading end home; with the crawl or without it the four poses
+  read the same to 0.1 s.
+- **The tangent was a point.** A settled car's own pitch and roll turn its nose by their product:
+  measured over 24 headings, up to 5.0e-8 off the placed heading with the throttle held through
+  touchdown. Any positive swing read as outward and forward was refused, at exactly the pose the gate
+  says must not be ("the tangent itself is not refused, or a stationary car could never get moving" —
+  which passed, because it hands the fence an exact (0, 1)). `FENCE_TANGENT` is a band of 1e-6, 20x
+  the swing and 1/1000 of sin 0.06 degrees, the smallest outward nose the gate requires refused; both
+  margins are checks now. A first version used 1e-9, sized off the quaternion's own noise (6.1e-17 on
+  a nose built exactly tangential) rather than the suspension's, and the six tours that start at rest
+  on the tangent still read an arc of 0 m. With the band they tour 133 m at the crawl, as before.
+- **And the latch arm's subject went with the crawl.** It asserts the fence does not brake a parked
+  car on its own rounding noise, and that the drift "is real, so the arm is not measuring nothing" —
+  which now reads 0. It runs with the hold OFF (`restHoldMs = 0`), the worst case a regression in the
+  hold would bring back, and a new check says the same car with the hold drifts exactly 0.
+
+Rows, each run alone on the committed tree: `fence-dir` (repointed to the band's refusal) caught by
+blocker-test on "driving home is allowed" and nine more; `fence-tangent-point` and `fence-tangent-quat`
+by blocker-test on "the car did move in every one of these arms" (the six rest tours read 0 m), the
+second also on the band's margin check; `rest-hold-off` by physics-test §7b and blocker-test's held-car
+check; `rest-hold-throttle` by blocker-test, crash-test, roadpath-test, shunt-rate and playtest.
+`fence-tangent-point` is NOT caught by the pose sweep any more, and that is the HUD-reading player
+working: a nose read as out by 5e-8 says "reverse", and reverse is allowed. blocker-test 128 -> 131
+checks, physics-test 22 -> 26; the 51-gate offline list green.
+
+#### #146 (as filed, in #124's round)
+
+A parked car on perfectly flat ground creeps 4.9 mm/s with no input, 0.546 m in 115 s at every yaw,
+because the tyres resist motion only viscously and have no static friction. In the district at the
+corridor camera's focus it crept 3.8 mm/s, and the sun's shadow box follows that focus.
