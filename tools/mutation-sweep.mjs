@@ -2983,6 +2983,15 @@ const MUTATIONS = [
     why: 'every caster re-rasterises at a new sub-texel phase each frame the car moves: the canopy shade crawls',
   },
   {
+    // #124: the box's depth axis left exact, as it shipped before. Behaviour-preserving in exact
+    // arithmetic, which is why the phase check cannot see it; only the drift check, which walks a
+    // viewer a millimetre at a time along the light, counts the box moving.
+    id: 'shadow-depth-exact', file: 'src/daynight.js',
+    find: '    const dt = Math.round(t / texel) * texel - t;',
+    to: '    const dt = 0;',
+    why: 'a parked car crawling along the light moves the shadow box every frame and re-rounds every contact edge: the cornice shimmer',
+  },
+  {
     id: 'shadow-world-axes', file: 'src/daynight.js',
     find: '    if (c > 1e-6) _sunAxisX.set(d.z / c, 0, -d.x / c); else _sunAxisX.set(1, 0, 0);',
     to: '    _sunAxisX.set(1, 0, 0);',
