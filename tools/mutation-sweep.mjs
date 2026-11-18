@@ -3448,8 +3448,9 @@ const MUTATIONS = [
   //      matrices; route-drive drives among the posts.
   {
     id: 'lamp-yaw-along', file: 'src/streetfurniture.js',
-    find: '        const yaw = Math.atan2(c.nz * side, -c.nx * side);',
-    to: '        const yaw = Math.atan2(-c.nx * side, -c.nz * side);',
+    // Repointed by #148: the yaw is decided in the station search now, where the globe test reads it.
+    find: '            const yaw = Math.atan2(c.nz * side, -c.nx * side);',
+    to: '            const yaw = Math.atan2(-c.nx * side, -c.nz * side);',
     why: '#135 back: the recorded yaw, which runs every arm along the street and hangs the emitter 2.2 m along the pavement',
   },
   {

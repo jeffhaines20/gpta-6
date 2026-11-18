@@ -4150,11 +4150,12 @@ export class StreetFurniture {
             // buried and 14 standing half out of a facade, at a height (7.66 m) every one of those
             // buildings rises past. Each globe is a sphere at its own height, so it is in a wall when it
             // is nearer a footprint than its radius and the building is taller than the sphere's bottom.
-            // The yaw is the one the station would be given below.
+            // The yaw is the station's own (#135's, explained below where it is used), so it is decided
+            // once, here, and the globes tested are the globes drawn.
             const yaw = Math.atan2(c.nz * side, -c.nx * side);
             if (LAMP_GLOBES.some((G) => this.buildingClearance(kb.x + Math.cos(yaw) * G.x,
               kb.z - Math.sin(yaw) * G.x, G.y - G.r) < G.r)) { stats.walled++; continue; }
-            found = { i, s, c, kb };
+            found = { i, s, c, kb, yaw };
             break;
           }
         }
@@ -4162,7 +4163,7 @@ export class StreetFurniture {
         if (found.i !== i0 && litAt(found.c)) { stats.redundant++; continue; }
         if (found.i !== i0) stats.snapped++;
         if (found.kb.moved > 0) stats.behind++;
-        const { c, kb } = found;
+        const { kb, yaw } = found;
         // #135: THE ARM OVER THE ROADWAY. The bracket and both globes are on the fixture's local +x,
         // which a yaw about +y sends to (cos yaw, -sin yaw). The post stands at +side * (nx, nz) from
         // the centreline, so the road is -side * (nx, nz) from it: cos yaw = -nx * side and
@@ -4170,8 +4171,8 @@ export class StreetFurniture {
         // comment "point the arm back over the roadway", which sends +x to (-nz * side, nx * side) —
         // the edge's own direction — and every one of its 509 arms ran along the street, the
         // "roadway" globe and the emitter 2.2 m along the pavement at the post's own offset.
-        // kerb-stand measures the head against the post off the instance matrices.
-        const yaw = Math.atan2(c.nz * side, -c.nx * side);
+        // kerb-stand measures the head against the post off the instance matrices. (The yaw is
+        // `found.yaw`, from the search, where #148's globe test needs it first.)
         stations.push({ ei, s: found.s, side, x: kb.x, z: kb.z, yaw });
         const p = { x: kb.x, z: kb.z };
         lit.insert(p, p.x, p.z, p.x, p.z);
