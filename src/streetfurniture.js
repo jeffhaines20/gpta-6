@@ -3972,7 +3972,7 @@ export class StreetFurniture {
     const STEP = 0.25;
     const stations = [];
     const stats = { planned: 0, redundant: 0, snapped: 0, dropped: 0, refused: 0, behind: 0,
-      edges: 0, streetM: 0, bareEdges: 0, bareM: 0 };
+      edges: 0, streetM: 0, bareEdges: 0, bareM: 0, walled: 0 };
     const lit = new Grid(16);
     const edgeLength = (e) => {
       let l = 0;
@@ -4144,6 +4144,16 @@ export class StreetFurniture {
             // No room: the post would stand in a building, or between two faces that each push it
             // in front of the other (a refuge too narrow for a footing) — measured where it ended.
             if (kb.moved > 0 && (this.buildingClearance(kb.x, kb.z) < LAMP_POLE_R || kb.worst < -0.01)) continue;
+            // #148: AND NEITHER GLOBE IN A WALL. The test above asks about the POST, and the fixture's
+            // second globe hangs 1.0 m behind it on the pavement side (LAMP_GLOBES[1]), so on a pavement
+            // narrower than that the globe was in the building: 23 of 1,228 lamps, 9 of them wholly
+            // buried and 14 standing half out of a facade, at a height (7.66 m) every one of those
+            // buildings rises past. Each globe is a sphere at its own height, so it is in a wall when it
+            // is nearer a footprint than its radius and the building is taller than the sphere's bottom.
+            // The yaw is the one the station would be given below.
+            const yaw = Math.atan2(c.nz * side, -c.nx * side);
+            if (LAMP_GLOBES.some((G) => this.buildingClearance(kb.x + Math.cos(yaw) * G.x,
+              kb.z - Math.sin(yaw) * G.x, G.y - G.r) < G.r)) { stats.walled++; continue; }
             found = { i, s, c, kb };
             break;
           }
@@ -4553,11 +4563,16 @@ export class StreetFurniture {
     return best;
   }
 
-  /** Metres from the nearest building footprint. Negative means inside one. */
-  buildingClearance(x, z) {
+  /**
+   * Metres from the nearest building footprint. Negative means inside one. `above` skips every building
+   * no taller than it, for a question asked at a height (#148: a lamp's globe hangs at 7.7 m, and a
+   * 6.4 m building beside the post is under it, not in it).
+   */
+  buildingClearance(x, z, above = -Infinity) {
     const list = this.bldGrid.near(x, z, this._scratch);
     let best = 99;
     for (const b of list) {
+      if (b.h <= above) continue;
       if (x < b.x0 - 8 || x > b.x1 + 8 || z < b.z0 - 8 || z > b.z1 + 8) continue;   // AABB reject
       const r = b.ring;
       let dd = Infinity;

@@ -44,7 +44,7 @@
 import fs from 'node:fs';
 import * as THREE from '../vendor/three.module.min.js';
 import { planKerbs, KERB, kerbedEdge } from '../src/kerb.js';
-import { StreetFurniture, LAMP_POOL, LAMP_ARM, LAMP_SPACING, LAMP_HEAD_Y, __kit } from '../src/streetfurniture.js';
+import { StreetFurniture, LAMP_POOL, LAMP_ARM, LAMP_SPACING, LAMP_HEAD_Y, LAMP_GLOBES, __kit } from '../src/streetfurniture.js';
 import { planStreetSignage } from '../src/signage.js';
 
 const SELFTEST = process.argv.includes('--selftest');
@@ -193,6 +193,45 @@ export function lampCoverage(edges, posts, spacing, pave = PAVE) {
   return out;
 }
 
+/**
+ * #148: every lamp globe that reaches into a building. Each globe of `globes` (LAMP_GLOBES: x along the
+ * arm, y, r) is a sphere at its own height, so it is in a wall when its centre is nearer a footprint than
+ * its radius, or inside it, AND the building rises above the sphere's bottom: a 6.4 m roof under a globe
+ * at 7.7 m is not a wall. Written here from the footprints rather than through the module's own
+ * `buildingClearance`, so the gate and the placer it judges are two implementations of one rule.
+ */
+export function globesInWalls(lamps, buildings, globes) {
+  const hits = [];
+  const sd = (ring, x, z) => {
+    let d = Infinity, inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [xi, zi] = ring[i], [xj, zj] = ring[j];
+      if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+      const vx = xi - xj, vz = zi - zj, l2 = vx * vx + vz * vz;
+      const t = l2 ? Math.max(0, Math.min(1, ((x - xj) * vx + (z - zj) * vz) / l2)) : 0;
+      d = Math.min(d, Math.hypot(x - xj - vx * t, z - zj - vz * t));
+    }
+    return inside ? -d : d;
+  };
+  const boxes = buildings.map((B) => {
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (const [x, z] of B.p) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
+    return { x0, x1, z0, z1 };
+  });
+  lamps.forEach((L, li) => {
+    globes.forEach((G, gi) => {
+      const gx = L.x + Math.cos(L.yaw) * G.x, gz = L.z - Math.sin(L.yaw) * G.x;
+      buildings.forEach((B, bi) => {
+        const b = boxes[bi];
+        if (B.h <= G.y - G.r || gx < b.x0 - G.r || gx > b.x1 + G.r || gz < b.z0 - G.r || gz > b.z1 + G.r) return;
+        const d = sd(B.p, gx, gz);
+        if (d < G.r) hits.push({ lamp: li, globe: gi, building: bi, d, x: gx, z: gz });
+      });
+    });
+  });
+  return hits;
+}
+
 if (SELFTEST && IS_MAIN) {
   console.log('KERB STAND SELFTEST');
   // A straight kerb along x: the ribbon edge on z = 0, the pavement toward +z, so the face is at
@@ -263,6 +302,26 @@ if (SELFTEST && IS_MAIN) {
   check('and a post off this street\'s pavement, or beyond the spacing, lights none of it',
     far1.both + far1.one === 0 && far2.both + far2.one === 0,
     `lateral 30 m: ${far1.one.toFixed(1)} m; 27 m along: ${far2.one.toFixed(1)} m`);
+  // #148's instrument on a 10 m square building 12 m tall, with lamps whose arm points +x (yaw 0), so
+  // the outer globe hangs 2.2 m east of the post and the inner one 1.0 m west of it.
+  const box = [{ p: [[0, 0], [10, 0], [10, 10], [0, 10]], h: 12 }];
+  const low = [{ p: box[0].p, h: 7.0 }];
+  const at = (x) => [{ x, z: 5, yaw: 0 }];
+  const deep = globesInWalls(at(10.6), box, LAMP_GLOBES);      // inner globe at 9.6: 0.4 m inside
+  const touch = globesInWalls(at(11.15), box, LAMP_GLOBES);    // inner at 10.15: 0.15 m out, r 0.22
+  const clear = globesInWalls(at(11.3), box, LAMP_GLOBES);     // inner at 10.3: 0.30 m out
+  const outer = globesInWalls(at(-2.0), box, LAMP_GLOBES);     // outer globe at 0.2: inside
+  check('a pavement-side globe 0.4 m inside a wall is found, as that globe, at that depth',
+    deep.length === 1 && deep[0].globe === 1 && Math.abs(deep[0].d + 0.4) < 1e-9, JSON.stringify(deep));
+  check('and one whose centre is outside but nearer the wall than its radius is found too',
+    touch.length === 1 && touch[0].globe === 1 && Math.abs(touch[0].d - 0.15) < 1e-9, JSON.stringify(touch));
+  check('and one clear of the wall by more than its radius is not',
+    clear.length === 0, JSON.stringify(clear));
+  check('the arm\'s own globe is read on its own side of the post',
+    outer.length === 1 && outer[0].globe === 0, JSON.stringify(outer));
+  check('KNOWN-BAD: a roof under the globe is not a wall, so the height is part of the test',
+    globesInWalls(at(10.6), low, LAMP_GLOBES).length === 0 && deep.length === 1,
+    `${globesInWalls(at(10.6), low, LAMP_GLOBES).length} against a 7.0 m building, 1 against a 12 m one`);
   const failed = checks.filter((k) => !k.ok);
   console.log(`\nKERB STAND SELFTEST: ${failed.length ? 'FAIL' : 'PASS'} — ${checks.length} checks`);
   process.exit(failed.length ? 1 : 0);
@@ -404,6 +463,22 @@ if (!SELFTEST && IS_MAIN) {
       r.overflow === lamps.placed - 1000 && r.placed === 1000 && small.poles.count === 1000
         && r.placed + r.redundant + r.dropped + r.refused + r.overflow === r.planned,
       `placed ${r.placed}, overflow ${r.overflow}, ${small.poles.count} drawn`);
+  }
+
+  /**
+   * #148: NO GLOBE IN A WALL. The placer refused a post that would stand in a building and never asked
+   * about the globes, and the fixture's second globe hangs 1.0 m behind the post on the pavement side:
+   * 23 of 1,228 lamps had it in a building taller than its bottom, 9 wholly buried and 14 half out of a
+   * facade. Counted here from the footprints, with the gate's own predicate (`globesInWalls`).
+   */
+  {
+    const hits = globesInWalls(lamps.lamps, district.buildings, LAMP_GLOBES);
+    console.log(`  #148: ${hits.length} lamp globes in a wall of ${lamps.lamps.length * LAMP_GLOBES.length}; `
+      + `the placer skipped ${lamps.walled} candidate spots (0.25 m apart) for a globe`);
+    check('no lamp globe reaches into a building that rises past it (#148)',
+      lamps.lamps.length > 1000 && hits.length === 0,
+      hits.length ? hits.slice(0, 4).map((h) => `globe ${h.globe} at (${h.x.toFixed(1)}, ${h.z.toFixed(1)}) `
+        + `d ${h.d.toFixed(2)} in building ${h.building}`).join('; ') : `0 of ${lamps.lamps.length} lamps`);
   }
 
   /**

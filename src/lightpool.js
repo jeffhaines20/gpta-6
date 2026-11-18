@@ -2,11 +2,11 @@
 //
 // three.js forward-renders: every light in the scene is evaluated by every lit
 // fragment, and each material compiles against the current light count. The
-// district places 1,228 street lamps - counted from the baked edges by
+// district places 1,222 street lamps (1,228 until #148 kept their globes out of walls) - counted from the baked edges by
 // src/streetfurniture.js placeStreetLamps, which the page runs, and reported at
 // runtime as report().emitters; its pool, LAMP_POOL, holds every station the plan
 // proposes, and one it cannot hold is counted as `overflow`, not dropped quietly.
-// So this is not "1,228 cheap lights": it is a per-fragment loop of 1,228 and a
+// So this is not "1,222 cheap lights": it is a per-fragment loop of 1,222 and a
 // shader that may not compile at all on real hardware. The figure was 233 when
 // this file was written, 543 and then 509 under the per-segment loop #137
 // replaced; read report().emitters rather than any figure quoted here.

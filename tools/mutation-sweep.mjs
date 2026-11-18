@@ -3508,6 +3508,18 @@ const MUTATIONS = [
   },
   {
     /**
+     * #148: THE PLACER STOPS ASKING ABOUT THE GLOBES. Every post still stands where it may, so every
+     * post-shaped check holds; what comes back is the fixture's pavement-side globe in a building on a
+     * narrow pavement — 23 of 1,228 lamps, 9 buried and 14 half out of a facade. kerb-stand's
+     * `globesInWalls` counts it from the footprints with its own predicate.
+     */
+    id: 'lamp-globe-walls', file: 'src/streetfurniture.js',
+    find: '            if (LAMP_GLOBES.some((G) => this.buildingClearance(kb.x + Math.cos(yaw) * G.x,',
+    to: '            if (false && LAMP_GLOBES.some((G) => this.buildingClearance(kb.x + Math.cos(yaw) * G.x,',
+    why: 'a lamp\'s pavement-side globe stands in the building behind a narrow pavement',
+  },
+  {
+    /**
      * THE LAMP POOL FORGETS ITS NAME. Nothing visible changes: every lamp draws where it did. What
      * changes is the price every instrument that buckets by name quotes for it — tri-breakdown and
      * shadow-bill read the three meshes as `street furniture + trees`, at that row's x1.28 where they
