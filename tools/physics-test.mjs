@@ -245,20 +245,22 @@ check('reverse still has authority off the mark', (() => {
  */
 {
   const yawOf = (q) => Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y ** 2 + q.x ** 2));
-  const park = (hold, yaw, seconds) => {
+  const park = (hold, yaw, seconds, brake = 0) => {
     const v = new Vehicle();
     if (!hold) v.restHoldMs = 0;
     v.position.set(0, 0.55, 0);
     v.quaternion.setFromAxisAngle({ x: 0, y: 1, z: 0 }, yaw);
     // The spawn bounce first: two seconds, which is how long the suspension takes to come to rest.
-    for (let i = 0; i < 2 / DT; i++) { v.setControls({ throttle: 0, brake: 0, steer: 0 }); v.step(DT, ground); }
+    for (let i = 0; i < 2 / DT; i++) { v.setControls({ throttle: 0, brake, steer: 0 }); v.step(DT, ground); }
     const p0 = v.position.clone(), y0 = yawOf(v.quaternion);
+    const s0 = v.wheels.map((w) => w.spinAngle), h0 = v.restHeld;
     for (let i = 0; i < Math.round(seconds / DT); i++) {
-      v.setControls({ throttle: 0, brake: 0, steer: 0 });
+      v.setControls({ throttle: 0, brake, steer: 0 });
       v.step(DT, ground);
     }
     return { moved: Math.hypot(v.position.x - p0.x, v.position.z - p0.z),
-      turned: Math.abs(yawOf(v.quaternion) - y0), held: v.restHeld, v };
+      turned: Math.abs(yawOf(v.quaternion) - y0), held: v.restHeld, heldMeasured: v.restHeld - h0,
+      spun: Math.max(...v.wheels.map((w, k) => Math.abs(w.spinAngle - s0[k]))), v };
   };
   const HEADINGS = [0, 0.7, 2.1, 4.0];
   const on = HEADINGS.map((y) => park(true, y, 115)), off = HEADINGS.map((y) => park(false, y, 115));
@@ -275,6 +277,21 @@ check('reverse still has authority off the mark', (() => {
     worstOn === 0 && turnedOn < 1e-9 && on.every((r) => r.held > 0),
     `worst ${worstOn} m and ${turnedOn.toExponential(1)} rad against the crawl's ` +
     `${turnedOff.toExponential(2)} rad, held ${on.map((r) => r.held).join('/')} steps of ${Math.round(117 / DT)}`);
+  // #149: AND ITS WHEELS DO NOT TURN. The hold cleared the body's velocity after the wheel loop had
+  // already turned every wheel by it, so a car held to 0 m went on turning its wheels - 30-60 deg a
+  // minute with no input and up to 238 deg with the brake on, the wheels turning against each other,
+  // at the game's 1/120 step and twice that at this file's 1/60. A blind reviewer saw it as a stopped
+  // car's rims changing between two captures while its body did not. Exact, because the fix restores
+  // the angle each wheel started the step from; and it asserts the hold held EVERY step, because a
+  // wheel that turned on a step the hold missed is a different defect from one that turns under it.
+  const braked = park(true, 0, 60, 1);
+  const spunOn = Math.max(...on.map((r) => r.spun));
+  const stepsOn = Math.round(115 / DT), stepsBraked = Math.round(60 / DT);
+  check('and its wheels do not turn while it holds, brake off at four headings and brake on (#149)',
+    spunOn === 0 && braked.spun === 0
+      && on.every((r) => r.heldMeasured === stepsOn) && braked.heldMeasured === stepsBraked,
+    `worst wheel ${spunOn} rad over 115 s free, ${braked.spun} rad over 60 s braked; held on ` +
+    `${on.map((r) => r.heldMeasured).join('/')} of ${stepsOn} and ${braked.heldMeasured} of ${stepsBraked} steps`);
   // Throttle releases it: from the held state, two seconds of full throttle is a car pulling away.
   const pullAway = (v) => {
     for (let i = 0; i < 2 / DT; i++) { v.setControls({ throttle: 1, brake: 0, steer: 0 }); v.step(DT, ground); }
@@ -299,6 +316,44 @@ check('reverse still has authority off the mark', (() => {
     return { t, dz: v.position.z - z0, heldDuring: v.restHeld - held0 };
   };
   const rolledOn = roll(true), rolledOff = roll(false);
+  // The positive half of #149's check, twice over. A rule that froze the wheels whenever the car is
+  // slow passes "a held car's wheels do not turn"; so does one that snaps them to a stale angle when
+  // the hold engages. (a) A car that drives away from the hold turns every wheel through the distance
+  // it covers. (b) A car that coasts to a stop and is then held keeps the angle it stopped at.
+  {
+    const v = park(true, 0, 1).v;
+    const s0 = v.wheels.map((w) => w.spinAngle), p0 = v.position.clone();
+    for (let i = 0; i < 5 / DT; i++) { v.setControls({ throttle: 1, brake: 0, steer: 0 }); v.step(DT, ground); }
+    const moved = Math.hypot(v.position.x - p0.x, v.position.z - p0.z);
+    const ratio = v.wheels.map((w, k) => (w.spinAngle - s0[k]) * v.wheelRadius / moved);
+    check('and a car driving away from the hold turns every wheel through the distance it covers (#149)',
+      moved > 20 && ratio.every((r) => Math.abs(r - 1) < 0.05),
+      `${moved.toFixed(1)} m in 5 s, wheel arc over distance ${ratio.map((r) => r.toFixed(4)).join(' / ')}`);
+  }
+  {
+    const v = new Vehicle();
+    v.position.set(0, 0.55, 0);
+    for (let i = 0; i < 2 / DT; i++) { v.setControls({ throttle: 0, brake: 0, steer: 0 }); v.step(DT, ground); }
+    v.velocity.set(0, v.velocity.y, 1.5);
+    const s0 = v.wheels.map((w) => w.spinAngle);
+    // Coast until the hold takes the car, then compare the wheels across the step it took them on. Not
+    // a fixed wait after the coast: the tyres' resistance is viscous, so the last few cm/s go slowly and
+    // two seconds after 5 cm/s the car is still rolling (117 mm of arc), which is motion, not a snap.
+    let t = 0, jump = null;
+    while (t < 120) {
+      const before = v.wheels.map((w) => w.spinAngle), h = v.restHeld;
+      v.setControls({ throttle: 0, brake: 0, steer: 0 });
+      v.step(DT, ground);
+      t += DT;
+      if (v.restHeld > h) { jump = Math.max(...v.wheels.map((w, k) => Math.abs(w.spinAngle - before[k]))); break; }
+    }
+    const rolled = Math.max(...v.wheels.map((w, k) => Math.abs(w.spinAngle - s0[k])));
+    check('and a car that coasts until the hold takes it keeps the wheel angle it stopped at (#149)',
+      jump === 0 && rolled > 10,
+      jump === null ? `the hold never took the car in ${t.toFixed(1)} s` :
+        `held after ${t.toFixed(2)} s of coasting; the wheels turned ${rolled.toFixed(2)} rad on the way ` +
+        `and ${jump} rad on the step the hold took them`);
+  }
   check('and it is not a brake: a car rolling at 1.5 m/s coasts down as it does without it',
     rolledOn.t === rolledOff.t && Math.abs(rolledOn.dz - rolledOff.dz) < 1e-3 && rolledOn.heldDuring === 0,
     `${rolledOn.t.toFixed(3)} s and ${rolledOn.dz.toFixed(4)} m against ${rolledOff.t.toFixed(3)} s and ` +

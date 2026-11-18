@@ -193,6 +193,7 @@ export class Vehicle {
       suspLen: this.suspRest,
       worldPos: new THREE.Vector3(),
       spinAngle: 0,
+      spinPrev: 0,   // the angle this step started from; see the rest hold in step()
       slip: 0,
     }));
   }
@@ -297,6 +298,7 @@ export class Vehicle {
 
     let groundedWheels = 0;
     for (const w of this.wheels) {
+      w.spinPrev = w.spinAngle;
       // Wheel anchor in world space.
       const offset = new THREE.Vector3()
         .addScaledVector(right, w.x)
@@ -412,6 +414,14 @@ export class Vehicle {
       && Math.hypot(this.velocity.x, this.velocity.z) < this.restHoldMs
       && Math.abs(this.angularVelocity.y) < REST_HOLD_W) {
       this.velocity.x = 0; this.velocity.z = 0; this.angularVelocity.y = 0;
+      // AND THE WHEELS (#149). The wheel loop above has already turned every wheel by this step's
+      // vLong, the velocity just discarded, so a car the hold kept to 0.000 mm went on turning its
+      // wheels: at the game's 1/120 step, 30-60 deg a minute with no input and up to 238 deg with the
+      // brake on, the four wheels turning against each other - twice that at 1/60, because it is a
+      // per-step quantity and not motion. A blind reviewer saw it as a stopped car's rims changing
+      // between two captures while its body did not. Restoring the angle each wheel started the step
+      // from is exact, and it is the same statement as the line above: the car did not move.
+      for (const w of this.wheels) w.spinAngle = w.spinPrev;
       this.restHeld++;
     }
 

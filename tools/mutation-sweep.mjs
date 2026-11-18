@@ -573,6 +573,29 @@ const MUTATIONS = [
     to: '    if (groundedWheels === this.wheels.length && true',
     why: 'a parked car cannot be driven off',
   },
+  {
+    /**
+     * #149: THE HOLD STOPS THE BODY AND NOT THE WHEELS. The wheel loop has already turned every wheel
+     * by the step's vLong when the hold discards that velocity, so without the restore a car held to
+     * 0 m turns its wheels 30-60 deg a minute free and up to 238 deg braked, against each other. The
+     * body does not move, so every position check passes; only the wheel angle can see it.
+     */
+    id: 'rest-hold-wheels', file: 'src/vehicle.js',
+    find: '      for (const w of this.wheels) w.spinAngle = w.spinPrev;',
+    to: '      // the wheels keep the turn this step gave them',
+    why: "a parked car's rims turn while its body is held still",
+  },
+  {
+    /**
+     * #149's other half: the restore with no fresh starting angle. spinPrev then keeps its initial 0,
+     * so a held car's wheels sit still (the row above passes) and a car that coasts to a stop snaps its
+     * wheels back through the whole coast, 65 rad, on the step the hold takes it.
+     */
+    id: 'rest-hold-wheels-stale', file: 'src/vehicle.js',
+    find: '      w.spinPrev = w.spinAngle;',
+    to: '      // the starting angle is never refreshed',
+    why: 'a car that coasts to a stop snaps its wheels back to a stale angle when the hold takes it',
+  },
   // ---- src/hud.js
   {
     /**
