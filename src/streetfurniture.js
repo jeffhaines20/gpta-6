@@ -60,6 +60,7 @@ import { buildTrafficCarGeometry, trafficCarMaterial, lampEmissive,
 // the only way to be sure the chairs stand under the cafe's own sign rather than
 // under the barber's. Neither module imports this one, so there is no cycle.
 import { buildingStyle } from './facades.js';
+import { COVERAGE_LIT_TAG } from './post.js';
 import { signPlanFor } from './signage.js';
 import { streetDirFor } from './geom.js';
 import { paintFamily, paintTone, ACHROMATIC_SHARE } from './carpaint.js';
@@ -603,6 +604,205 @@ function alphaTexture() {
 // written and the comment then claimed otherwise. tools/leaf-mask.mjs prints
 // all three, so the claim is checkable rather than asserted.
 const ALPHA_TEST = 0.42;
+
+// ------------------------------------------------- alpha to coverage, on the cut zones only (#145)
+//
+// AN ALPHA TEST IS DECIDED ONCE PER PIXEL, HOWEVER MANY SAMPLES THE TARGET CARRIES. src/post.js
+// renders the scene into a 4-sample target, so every POLYGON edge in the district resolves to a
+// partial pixel; but the stencil above cuts a leaf's outline INSIDE a polygon, where the fragment
+// shader runs once at the pixel centre and either discards all four samples or keeps all four.
+// So the canopy's outline was a step at every hour, and every blind review this month measured it
+// in both arms: "86% of leaf/sky boundary pixels have no partial coverage". tools/leaf-edge.mjs is
+// that statistic as an instrument.
+//
+// Alpha to coverage turns the alpha into a SAMPLE MASK: the GPU keeps as many of the four samples as
+// the alpha asks for, so a texel edge lands on the resolve as a partial pixel exactly as a polygon
+// edge does. Three things decide whether it is a fix or a new defect, and each is handled here:
+//
+//  1. THE ALPHA IS THE COVERAGE, SO IT CANNOT ALSO BE #114's TAG. src/post.js writes every OPAQUE lit
+//     material's emitted share into the alpha as -(1 + share), and the GPU clamps a negative alpha to
+//     a mask of NOTHING. three knows: a material with alphaToCoverage is not OPAQUE (`opaque:
+//     transparent === false && ... && alphaToCoverage === false`), so the tag is never written for
+//     it. That is right for a leaf or a limb, which emits nothing, and wrong for the signal lenses,
+//     which share this material and need the tag to keep the AO off their glow at night. So the
+//     coverage is NOT switched on for the shared material: the triangles that touch a cut zone of
+//     the stencil are welded into the same bucket mesh as everything else and drawn by a second
+//     material, `foliageMaterial`, and everything else keeps `propMaterial` exactly as it was.
+//  2. three FORCES THE SHADOW CUT TO 0.5. Its shadow pass derives a depth material from the drawn one
+//     and copies `alphaTest = material.alphaToCoverage ? 0.5 : material.alphaTest`, for a custom
+//     depth material as well as its own (vendor/three.module.min.js, the shadow map's material
+//     cache). 0.5 against ALPHA_TEST's 0.42 would thin every tree's shadow, and the far tier's most
+//     of all, because its mipped stencil sits near the test. `foliageDepthMaterial` writes the test
+//     into its shader as ALPHA_TEST itself, so the sun's map is cut where it always was.
+//  3. three's OWN coverage is not centred: `smoothstep( alphaTest, alphaTest + fwidth( a ), a )` is
+//     0 AT the test, so every cut edge moves half a pixel inward and every leaf island a pixel wide
+//     loses half its area. COVERAGE_GLSL centres the ramp on the test, so a texel edge keeps the
+//     coverage it had under the test and only gains the partial pixel.
+//
+// The coverage material is a CLONE: the same maps, the same palette, the same polygon offset. The
+// one switch `setFoliageCoverage` turns it back into the test on the same page, so the instrument
+// reads both arms off one load.
+export const COVERAGE_MODES = ['test', 'three', 'centred', 'length'];
+/**
+ * #145: WHERE THE BARK FRINGE MAY CUT, as the cosine between a tube's radial normal and the view.
+ *
+ * The fringe (BARK_P, the bark zone of the stencil) is built on the argument that a tube's silhouette
+ * is always on a vertex ray, so a fringe at every ray lands on the outline from every angle. The
+ * argument is right about the silhouette and silent about the rays that FACE the camera: they are cut
+ * the same way, the back faces are culled, and what shows through the cut is whatever stands behind the
+ * tree. 44.5% of the bark zone is cut (tools/leaf-mask.mjs), and the trunk of the oak on
+ * tools/leaf-cover.html is a lattice with the sky in it. A front-facing ray of a three-sided limb is
+ * at least 0.5 from the view at worst (two rays at +-60 degrees), so the cut is faded out between
+ * these two cosines and every such ray is solid; a five-sided trunk's rays at 72 degrees sit within the
+ * outer 5% of its width, which is the outline. Colour pass only: the sun's map is cut as before.
+ */
+const BARK_RIM = [0.25, 0.55];
+const COVERAGE_SEAM = '#include <alphatest_fragment>';
+const COVERAGE_GLSL = `
+#ifdef USE_ALPHATEST
+	#ifdef FOLIAGE_BARK_RIM
+	// #145: THE BARK FRINGE BELONGS ON THE SILHOUETTE, and the stencil alone cannot put it there. See
+	// BARK_RIM: a front-facing vertex ray is cut like a silhouette one, and the back faces are culled.
+	if ( floor( vAlphaMapUv.x * ${PAL_W}.0 ) == ${S.bark}.0 ) {
+		float facing = abs( dot( normalize( vNormal ), normalize( vViewPosition ) ) );
+		diffuseColor.a = mix( diffuseColor.a, 1.0, smoothstep( ${BARK_RIM[0].toFixed(2)}, ${BARK_RIM[1].toFixed(2)}, facing ) );
+	}
+	#endif
+	#ifdef ALPHA_TO_COVERAGE
+		#if defined( FOLIAGE_COVERAGE_THREE )
+		diffuseColor.a = smoothstep( alphaTest, alphaTest + fwidth( diffuseColor.a ), diffuseColor.a );
+		#elif defined( FOLIAGE_COVERAGE_LENGTH )
+		// The ramp one pixel wide ALONG THE GRADIENT, where fwidth's L1 sum is up to sqrt 2 too steep.
+		diffuseColor.a = clamp( ( diffuseColor.a - alphaTest ) / max( length( vec2( dFdx( diffuseColor.a ), dFdy( diffuseColor.a ) ) ), 1e-4 ) + 0.5, 0.0, 1.0 );
+		#else
+		// #145: the ramp is centred on the test, half a pixel each side of it.
+		diffuseColor.a = clamp( ( diffuseColor.a - alphaTest ) / max( fwidth( diffuseColor.a ), 1e-4 ) + 0.5, 0.0, 1.0 );
+		#endif
+		if ( diffuseColor.a == 0.0 ) discard;
+	#else
+		if ( diffuseColor.a < alphaTest ) discard;
+	#endif
+#endif`;
+
+/** The cut zones of the stencil, as texel rows: the oak stamps, the two palm combs, the bark fringe. */
+const CUT_ZONES = [
+  [0, OAK_STAMPS * STAMP_H], [QUEEN_V0, QUEEN_V0 + COMB_H],
+  [SABAL_V0, SABAL_V0 + COMB_H], [BARK_V0, BARK_V0 + BARK_H],
+];
+/** Does a vertex at stencil v address a zone the test can cut? v = 0.5 (every non-tree prop) does not. */
+function inCutZone(v) {
+  const row = v * AH - 0.5;
+  for (const [y0, y1] of CUT_ZONES) if (row >= y0 - 0.5 && row <= y1 - 0.5) return true;
+  return false;
+}
+/**
+ * The weld's partition: the triangles of `idx` that touch a cut zone go LAST and the rest keep their
+ * order, so the opaque group draws exactly the triangles it drew before, in the order it drew them.
+ * @returns {{idx:number[], nOpaque:number}} nOpaque in TRIANGLES
+ */
+function splitCutZones(idx, uv) {
+  const keep = [], cut = [];
+  for (let i = 0; i < idx.length; i += 3) {
+    const a = idx[i], b = idx[i + 1], c = idx[i + 2];
+    const t = inCutZone(uv[a * 2 + 1]) || inCutZone(uv[b * 2 + 1]) || inCutZone(uv[c * 2 + 1]);
+    (t ? cut : keep).push(a, b, c);
+  }
+  return { idx: keep.concat(cut), nOpaque: keep.length / 3 };
+}
+
+/**
+ * ONE BUCKET'S MESH, the one way it is built: the page's dress pass and tools/leaf-edge.html both call
+ * this, so the gate draws exactly the groups, materials and depth material the district does.
+ * @returns {{mesh: THREE.Mesh, cut: number}} cut = triangles drawn with the coverage material
+ */
+function weldBucket(b, mat, fol) {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(b.pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(b.nrm, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(b.col, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(b.uv, 2));
+  const split = splitCutZones(b.idx, b.uv);
+  g.setIndex(split.idx);
+  const nTri = split.idx.length / 3, cut = nTri - split.nOpaque;
+  let material = mat;
+  if (cut > 0 && split.nOpaque > 0) {
+    g.addGroup(0, split.nOpaque * 3, 0);
+    g.addGroup(split.nOpaque * 3, cut * 3, 1);
+    material = [mat, fol];
+  } else if (cut > 0) {
+    material = fol;
+  }
+  g.computeBoundingSphere();
+  const mesh = new THREE.Mesh(g, material);
+  // three derives the sun's depth material from the DRAWN one and cuts a coverage material's at 0.5;
+  // the cut-zone buckets carry their own, cut at ALPHA_TEST. See foliageDepthMaterial.
+  if (cut > 0) mesh.customDepthMaterial = foliageDepthMaterial();
+  return { mesh, cut };
+}
+
+/**
+ * #145: WHERE A FULLY COVERED LEAF SAYS IT IS LIT. Top-level in the material's own shader (CLAUDE.md:
+ * `onBeforeCompile` hands you unresolved includes), and after it, because opaque_fragment is the line
+ * that writes the colour out. See COVERAGE_LIT_TAG in src/post.js for the value and why it is safe.
+ */
+const LIT_TAG_SEAM = '#include <opaque_fragment>';
+const LIT_TAG_GLSL = `${LIT_TAG_SEAM}
+#if defined( ALPHA_TO_COVERAGE ) && ! defined( FOLIAGE_NO_LIT_TAG )
+	if ( gl_FragColor.a >= 1.0 ) gl_FragColor.a = ${COVERAGE_LIT_TAG.toFixed(1)};
+#endif`;
+
+/** The coverage material: `base` cloned, with alpha to coverage and the centred ramp. */
+function foliageMaterial(base, mode = 'centred', rim = true) {
+  const m = base.clone();
+  m.name = 'foliageCoverage';
+  // The clone shares base's Color for nothing: emissive is set on both by _applyEmissive, and this
+  // material's palette texels (foliage, bark) are black, so what it emits is zero either way.
+  m.onBeforeCompile = (shader) => {
+    if (!shader.fragmentShader.includes(COVERAGE_SEAM)) {
+      throw new Error(`foliageMaterial: no "${COVERAGE_SEAM}" in the fragment shader; the coverage would silently be three's`);
+    }
+    if (!shader.fragmentShader.includes(LIT_TAG_SEAM)) {
+      throw new Error(`foliageMaterial: no "${LIT_TAG_SEAM}" in the fragment shader; a covered leaf would bloom at the emitter's bar`);
+    }
+    shader.fragmentShader = shader.fragmentShader.replace(COVERAGE_SEAM, COVERAGE_GLSL).replace(LIT_TAG_SEAM, LIT_TAG_GLSL);
+  };
+  setCoverageMode(m, mode ?? 'centred', rim);
+  return m;
+}
+function setCoverageMode(m, mode, rim = m.userData.rim ?? true, litTag = m.userData.litTag ?? true) {
+  if (!COVERAGE_MODES.includes(mode)) throw new Error(`foliage coverage mode "${mode}" is not one of ${COVERAGE_MODES.join(', ')}`);
+  m.alphaToCoverage = mode !== 'test';
+  m.defines = mode === 'three' ? { FOLIAGE_COVERAGE_THREE: '' } : mode === 'length' ? { FOLIAGE_COVERAGE_LENGTH: '' } : {};
+  if (rim) m.defines.FOLIAGE_BARK_RIM = '';
+  // The lit tag is switchable only so a gate can draw its known-bad: a covered leaf left untagged.
+  if (!litTag) m.defines.FOLIAGE_NO_LIT_TAG = '';
+  m.customProgramCacheKey = () => `foliageCoverage:2:${mode}:${rim ? 'rim' : 'norim'}:${litTag ? 'tag' : 'notag'}`;
+  m.userData.coverage = mode;
+  m.userData.rim = !!rim;
+  m.userData.litTag = !!litTag;
+  m.needsUpdate = true;
+}
+
+let _folDepth = null;
+/**
+ * The sun's depth material for any bucket that draws with the coverage material: three's own, with
+ * the test written in as ALPHA_TEST, because three hands a coverage material's depth pass 0.5.
+ */
+function foliageDepthMaterial() {
+  if (_folDepth) return _folDepth;
+  const m = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
+  m.name = 'foliageDepth';
+  m.onBeforeCompile = (shader) => {
+    if (!shader.fragmentShader.includes(COVERAGE_SEAM)) {
+      throw new Error(`foliageDepthMaterial: no "${COVERAGE_SEAM}" in the depth shader; the shadow would be cut at three's 0.5`);
+    }
+    shader.fragmentShader = shader.fragmentShader.replace(COVERAGE_SEAM,
+      `#ifdef USE_ALPHATEST\n\tif ( diffuseColor.a < ${ALPHA_TEST.toFixed(6)} ) discard;\n#endif`);
+  };
+  m.customProgramCacheKey = () => `foliageDepth:${ALPHA_TEST}`;
+  _folDepth = m;
+  return m;
+}
 
 /** The single material every static prop in the district shares. */
 function propMaterial() {
@@ -4400,6 +4600,10 @@ export class StreetFurniture {
     // actually binds here.
     const mat = propMaterial();
     this.propMat = mat;
+    // #145: the cut zones' own material. See foliageMaterial.
+    const fol = foliageMaterial(mat, opts.foliageCoverage);
+    this.foliageMat = fol;
+    this.coverageBuckets = 0;
     for (const t of tiers) {
       const minTris = (opts.minBucketTriangles ?? 3500) * (t.name === 'near' ? 0.35 : 1);
       const centre = (key) => {
@@ -4425,17 +4629,13 @@ export class StreetFurniture {
         }
       }
 
-      // ---- weld each bucket into one mesh on the one shared material.
+      // ---- weld each bucket into one mesh on the one shared material, and the triangles that
+      // touch a cut zone of the stencil into a second group drawn with alpha to coverage (#145).
       for (const [key, b] of t.bufs) {
         if (!b.idx.length) continue;
-        const g = new THREE.BufferGeometry();
-        g.setAttribute('position', new THREE.Float32BufferAttribute(b.pos, 3));
-        g.setAttribute('normal', new THREE.Float32BufferAttribute(b.nrm, 3));
-        g.setAttribute('color', new THREE.Float32BufferAttribute(b.col, 3));
-        g.setAttribute('uv', new THREE.Float32BufferAttribute(b.uv, 2));
-        g.setIndex(b.idx);
-        g.computeBoundingSphere();
-        const m = new THREE.Mesh(g, mat);
+        const { mesh: m, cut } = weldBucket(b, mat, fol);
+        const g = m.geometry;
+        if (cut) this.coverageBuckets++;
         m.name = `props:${t.name}:${key}`;
         m.receiveShadow = true;
         m.userData.c = g.boundingSphere.center.clone();
@@ -5993,6 +6193,20 @@ export class StreetFurniture {
   }
 
   /**
+   * #145: how the cut zones are drawn — 'centred' (shipped: alpha to coverage, the ramp centred on
+   * the test), 'three' (three's own uncentred coverage) or 'test' (the alpha test, as before #145).
+   * One switch on one material, so an A/B comes off one page load. `rim` and `litTag` default to the
+   * SHIPPED state rather than to whatever the last call left, so an arm that switches one of them off
+   * cannot leak into the arm after it.
+   * @returns {string} the mode the material now carries
+   */
+  setFoliageCoverage(mode, rim = true, litTag = true) {
+    if (!this.foliageMat) return null;
+    setCoverageMode(this.foliageMat, mode, rim, litTag);
+    return this.foliageMat.userData.coverage;
+  }
+
+  /**
    * Hide prop buckets the streamer has already given up on.
    *
    * StreamingWorld keeps chunks out to farRadius * chunkSize = 640 m and unloads
@@ -6052,6 +6266,7 @@ export class StreetFurniture {
     if (this.propMat) {
       this.propMat.emissive.setScalar(lampEmissive(true, this._exposure, 1.9));
     }
+    if (this.foliageMat) this.foliageMat.emissive.copy(this.propMat.emissive);
     if (this.parked) {
       // A PARKED CAR HAS ITS LIGHTS OFF. This used to read
       //   lampEmissive(this._lit, this._exposure, 1.1)
@@ -6188,7 +6403,9 @@ export class StreetFurniture {
       meshes: {
         lamps: 3, parked: this.parked ? 1 : 0,
         propBuckets: this.propMeshes.length,
-        worstCaseDrawCalls: 3 + this.propMeshes.length + (this.parked ? 1 : 0),
+        // #145: a bucket with a cut zone in it draws twice, once per material.
+        coverageBuckets: this.coverageBuckets ?? 0,
+        worstCaseDrawCalls: 3 + this.propMeshes.length + (this.coverageBuckets ?? 0) + (this.parked ? 1 : 0),
       },
     };
   }
@@ -6213,6 +6430,10 @@ export const __kit = {
   // copy of the addressing arithmetic in the tool would drift from the one that
   // cut the leaves, which is the lesson at the top of this export block.
   alphaTexture, maskU, maskV, ALPHA_TEST, MASK_K, AW, AH,
+  // #145's split, for tools/leaf-mask.mjs and tools/leaf-edge.html: the zone rule, the partition the
+  // weld applies, the weld itself, and the two materials it draws with.
+  CUT_ZONES, inCutZone, splitCutZones, weldBucket, foliageMaterial, foliageDepthMaterial, setCoverageMode,
+  COVERAGE_SEAM, COVERAGE_GLSL, BARK_RIM, LIT_TAG_GLSL,
   OAK_STAMPS, STAMP_H, QUEEN_V0, SABAL_V0, COMB_H, BARK_V0, BARK_H,
   // The SHIPPED material, so a bench frame is lit and cut by the same object
   // the district draws with. tools/oak-look.mjs builds its own lookalike, which

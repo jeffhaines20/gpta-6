@@ -254,6 +254,15 @@ const OFFLINE = [
   // list renders a car under the district's own sky, and `arch-bevel-on` passes every buffer check.
   'car-arch',
   'car-arch --selftest',
+  // #145's page, a few seconds: one live oak and a bench welded into one bucket by the module's own
+  // weldBucket, through the real PostStack at 4 samples, arm by arm. Nothing else on this list renders a
+  // leaf: leaf-mask reads the stencil and the split off the buffers, and every row below that changes
+  // what the coverage material DRAWS — its ramp, its depth material, the bark rim — is invisible to it.
+  'leaf-cover',
+  'leaf-cover --selftest',
+  // Milliseconds: #145's edge statistic on synthetic canopies, the instrument the reviewers' numbers
+  // and leaf-cover's both go through.
+  'leaf-edge --selftest',
 ];
 
 /**
@@ -3197,8 +3206,10 @@ const MUTATIONS = [
   },
   {
     id: 'bloom-share-inverted', file: 'src/post.js',
-    find: '  float share = -s.a - 1.0;',
-    to: '  float share = s.a + 2.0;',
+    // Repointed by intent when #145 put the covered leaf's tag in front of the same decode: the share
+    // still reads upside down, and the leaf's branch is left alone (bright-lit-tag-off is that one).
+    find: '  float share = abs( s.a - ${COVERAGE_LIT_TAG.toFixed(1)} ) <= 0.01 ? 0.0 : -s.a - 1.0;',
+    to: '  float share = abs( s.a - ${COVERAGE_LIT_TAG.toFixed(1)} ) <= 0.01 ? 0.0 : s.a + 2.0;',
     why: 'the share read upside down: emitters lose their bloom and lit surfaces keep it',
   },
   {
@@ -3691,6 +3702,79 @@ const MUTATIONS = [
     to: '  for (const head of lamps.heads) lightPool.addEmitter(head.x, head.y, head.z, 1800, LAMP_LIGHT_COLOR, LAMP_REACH);',
     why: 'the page types its own candela again: a light twice what the globe in front of it was derived from',
     browser: true,
+  },
+  // ---- #145: the stencil's cut zones drawn with alpha to coverage, on their own material.
+  {
+    id: 'fol-a2c-off', file: 'src/streetfurniture.js',
+    find: "  m.alphaToCoverage = mode !== 'test';",
+    to: '  m.alphaToCoverage = false;',
+    why: 'the coverage never engages: every cut edge is a step again, while the mode the material reads back still says centred',
+  },
+  {
+    id: 'fol-uncentred', file: 'src/streetfurniture.js',
+    find: '\t\tdiffuseColor.a = clamp( ( diffuseColor.a - alphaTest ) / max( fwidth( diffuseColor.a ), 1e-4 ) + 0.5, 0.0, 1.0 );',
+    to: '\t\tdiffuseColor.a = smoothstep( alphaTest, alphaTest + fwidth( diffuseColor.a ), diffuseColor.a );',
+    why: "three's own ramp shipped, 0 AT the test: every cut edge half a pixel in and a tenth of the crown gone",
+  },
+  {
+    id: 'fol-depth-off', file: 'src/streetfurniture.js',
+    find: '  if (cut > 0) mesh.customDepthMaterial = foliageDepthMaterial();',
+    to: '',
+    why: "three's own depth material for the coverage buckets, which it cuts at a forced 0.5: every tree's shadow thinner",
+  },
+  {
+    id: 'fol-depth-uniform', file: 'src/streetfurniture.js',
+    find: 'if ( diffuseColor.a < ${ALPHA_TEST.toFixed(6)} ) discard;',
+    to: 'if ( diffuseColor.a < alphaTest ) discard;',
+    why: 'the custom depth material kept and its literal dropped: it reads the uniform three sets to 0.5 for a coverage material',
+    inert: "MEASURED INERT AT 5d5fef1: swept alone it was caught by nothing, and leaf-cover's sun map stayed byte-identical "
+      + "(0 texels). three does write alphaTest onto a CUSTOM depth material on every draw (getDepthMaterial in the vendored "
+      + "bundle: 0.5 for the coverage group, 0.42 for the opaque one), and, read off the renderer rather than measured, "
+      + "refreshes a material's uniforms only when the material changes; each bucket draws its opaque group first, so the "
+      + "cut group inherits 0.42. The literal stays because it does not lean on that draw order: a bucket with no opaque "
+      + "triangles, or a three that refreshes per draw, would cut the shadow at 0.5 (5,022 texels under one oak, depth05).",
+  },
+  {
+    id: 'fol-split-none', file: 'src/streetfurniture.js',
+    find: '    (t ? cut : keep).push(a, b, c);',
+    to: '    keep.push(a, b, c);',
+    why: 'every triangle on the shared material: no bucket draws the coverage, and every leaf edge is a step',
+  },
+  {
+    id: 'fol-split-all', file: 'src/streetfurniture.js',
+    find: '    (t ? cut : keep).push(a, b, c);',
+    to: '    cut.push(a, b, c);',
+    why: "every triangle on the coverage material, which is not OPAQUE: the bench, the poles and the signal lenses lose #114's tag",
+  },
+  {
+    id: 'fol-zone-bark', file: 'src/streetfurniture.js',
+    find: '  [SABAL_V0, SABAL_V0 + COMB_H], [BARK_V0, BARK_V0 + BARK_H],',
+    to: '  [SABAL_V0, SABAL_V0 + COMB_H],',
+    why: 'the bark zone left out of the cut zones: every limb alpha-tested on the shared material, a step at its edge and the lattice back in its trunk',
+  },
+  {
+    id: 'bark-rim-off', file: 'src/streetfurniture.js',
+    find: "function foliageMaterial(base, mode = 'centred', rim = true) {",
+    to: "function foliageMaterial(base, mode = 'centred', rim = false) {",
+    why: 'the rim off by default: every trunk and limb a lattice with the background showing through, as before #145',
+  },
+  {
+    id: 'bark-rim-column', file: 'src/streetfurniture.js',
+    find: '\tif ( floor( vAlphaMapUv.x * ${PAL_W}.0 ) == ${S.bark}.0 ) {',
+    to: '\tif ( floor( vAlphaMapUv.x * ${PAL_W}.0 ) == ${S.foliage}.0 ) {',
+    why: "the rim on the leaves' column: the crown's holes close where it faces the camera and the trunk stays a lattice",
+  },
+  {
+    id: 'fol-lit-tag-off', file: 'src/streetfurniture.js',
+    find: '\tif ( gl_FragColor.a >= 1.0 ) gl_FragColor.a = ${COVERAGE_LIT_TAG.toFixed(1)};',
+    to: '\t// the covered leaf keeps its coverage as its alpha',
+    why: "a fully covered leaf keeps a bare 1, which the bright pass reads as UNTAGGED: at night the crowns are held to the emitter's bar, 0.118 where the lit bar is 1.331, and bloom; nothing in a daylight frame moves",
+  },
+  {
+    id: 'bright-lit-tag-off', file: 'src/post.js',
+    find: '  float share = abs( s.a - ${COVERAGE_LIT_TAG.toFixed(1)} ) <= 0.01 ? 0.0 : -s.a - 1.0;',
+    to: '  float share = -s.a - 1.0;',
+    why: "the leaves carry their tag and the bright pass no longer reads it: the same night bloom as fol-lit-tag-off, with every alpha in the scene target still exactly what the gate's tag census expects",
   },
 ];
 

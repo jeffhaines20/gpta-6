@@ -23,8 +23,13 @@ export function tagOf(a) {
  * The BRIGHT PASS's decode of the same tag, which is not the composite's: tolerant by 0.01 and
  * clamped, because a lit texel sits exactly on share 0 and a linear-filtered fetch that picks up
  * 1e-7 of a neighbour would otherwise flip it to untagged (src/post.js brightSplit). -1 for untagged.
+ *
+ * #145: and src/post.js COVERAGE_LIT_TAG, a fully covered leaf, is lit: share 0. The 4 is a LITERAL
+ * because this function is passed into pages as source (tools/bloom-source.mjs), where an imported
+ * name does not exist; bloom-source --selftest asserts it against the export.
  */
 export function brightShareOf(a) {
+  if (Math.abs(a - 4) <= 0.01) return 0;
   const t = -a - 1;
   return t >= -0.01 && t <= 1.01 ? Math.min(1, Math.max(0, t)) : -1;
 }
@@ -58,7 +63,8 @@ export function classify(px, w, h, P, opts = {}) {
   for (let i = 0; i < n; i++) {
     const k = i * 4;
     const { lum, energy } = brightEnergy(px[k], px[k + 1], px[k + 2], P.exposure, P.threshold, P.softKnee);
-    const s = tagOf(px[k + 3]);
+    // #145: a covered leaf's own tag (src/post.js COVERAGE_LIT_TAG, a literal for the reason above) is lit.
+    const s = Math.abs(px[k + 3] - 4) <= 0.01 ? 0 : tagOf(px[k + 3]);
     lumOf[i] = lum; shareOf[i] = s;
     if (s < 0) { nUn++; eUn[i] = energy; sumUn += energy; }
     else {
