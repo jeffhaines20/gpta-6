@@ -2561,12 +2561,21 @@ float geHash( vec2 c ) { return fract( sin( dot( c, vec2( 91.7, 47.3 ) ) ) * 246
 // material, and the three levers are shared objects so one assignment switches
 // the district.
 //
-// IT SHIPS OFF. The defaults below ARE the build before #36, bit for bit
-// (tools/glass-room.mjs renders the untouched default against a replica of the
-// pre-#36 material and asserts max |d| 0 over the whole frame). The candidate a
-// blind pair compares is GLASS_ROOM_CANDIDATE, reached with
-// setGlassRoom('candidate') - ground-albedo's glass1 arm - and it is switched on
-// by changing uGlassRoom's default only after that review is back.
+// IT SHIPS OFF, AND THIS IS WHY (docs/BACKLOG.md #36 has the tables: 12 station views, the arms off
+// one page load, tools/glaz-probe.mjs GLZ_ARMS and tools/glass-sweep.mjs). 82% of a noon pane's
+// light is specular at B/R 1.705, and its F0 and F90 halves carry the same colour, so an F0 scale
+// moves a pane's LEVEL and not its hue: noon B/R 1.341 -> 1.400 at the candidate (medians), and a
+// daylit room would need 6.8x the reflection's light to bring a pane to the photographs'
+// glass-to-wall shift. What the candidate does move is pane:wall, 0.511 -> 0.316 at noon - glass
+// that reads as an opening dark against its wall, which the photographs' own detector then finds
+// (53 -> 64% of its "panes" are glass) - and it pays in the currency the record warned about:
+// within-pane p90/p10 2.367 -> 1.911 at noon and 2.445 -> 2.062 at golden, pane cv down at both.
+// That fails the rule written for it before the sweep, so it goes to a blind pair, and the
+// defaults below ARE the build before #36, bit for bit (tools/glass-room.mjs renders the
+// untouched default against a replica of the pre-#36 material and asserts max |d| 0 over the
+// whole frame). The candidate is GLASS_ROOM_CANDIDATE, reached with setGlassRoom('candidate') -
+// ground-albedo's glass1 arm - and switching it on is a change to uGlassRoom's and uGlassMirror's
+// defaults after that review is back.
 export const GLASS_ROOM_U = {
   uGlassRoom: { value: 0 },
   uGlassMirror: { value: 1 },
@@ -2584,8 +2593,10 @@ export const GLASS_ROOM_U = {
  * close (docs/BACKLOG.md #36 has the sweep and why it cannot be closed this way):
  *   mirror 0.4  the shipped coatings' mid-pane F0 of 0.18-0.27 to 0.07-0.11, the
  *               reflectance of tinted and low-e stock rather than of a coated mirror
- *   k 0.3       a sidelit room's surfaces at the glass line take of the order of a
- *               third of the facade's irradiance, and a tenth of it 3 m in
+ *   k 0.3       the light IN through the glass is folded into K (T is applied on the
+ *               way out): the stock's 0.55 transmission times the half of the outside
+ *               a surface just inside the glass line sees, 0.28 - and 0.086 of the
+ *               facade's irradiance 3 m in, after exp(-3 / 2.4)
  *   rough 1     unchanged: a rougher pane has no physical anchor, and the sweep
  *               bought noon B/R with golden's
  */

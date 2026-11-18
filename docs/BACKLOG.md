@@ -823,6 +823,215 @@ frames of the shipped build that a re-measurement can start from.
 ### #54 Traffic-car greenhouse is a hole at night: glass/paint 0.0225 in linear light
 `detail lost` beyond the subject line. Related to #92 and #36.
 
+### #36 MEASURED — noon glass is blue because what it reflects is blue; the levers trade dark-against-the-wall for structure, so the candidate ships OFF behind a switch for a blind pair
+**In four lines.** The record's own instrument does not read glass on this build: the photographs'
+detector, run on engine frames, labels as "pane" pixels that are glass by the shader's own mask 53%
+of the time at noon and 35% at golden. On that mask the glass reads B/R 1.341 at noon and 0.469 at
+golden (medians, 12 station views). No setting of the two candidate levers moves noon B/R, and why is
+measured rather than argued: 82% of a noon pane's light is the specular reflection at B/R 1.705, and
+an F0 scale changes that light's LEVEL and not its hue. What the levers do move is how dark a pane
+reads against its wall - and they buy it with the structure inside and between panes, which is the
+"every window is a flat dark fill" finding the record warned this lever would reopen.
+
+**THE RECORD MOVED BLUE BEFORE THIS ROUND STARTED.** The 1.298 / 0.819 were measured on 2026-09-05
+(c556937). The next day d304a1e took the painted reveal shading off the glass's albedo - which under
+metalness 0.80-0.88 IS its F0, so pane heads went up about 6.6x - and dropped the skyline a low pane
+reflects from 16 m to the measured 9.6 m, so more of every low pane is sky. Both are right and both
+are bluer. On the one station re-captured at the record's own 1280x960 on a pristine copy of HEAD
+(1016356973802321-L, noon) the city share of the reflection is 0.138 where the record has 0.575, and
+glass reads B/R 1.967 where it read 1.482.
+
+**AND THE RECORD'S INSTRUMENT STOPPED READING GLASS.** `pane-tint`'s detector finds a pane as an
+opening DARK against its wall, which is what Sarasota's glazing is in the photographs (pane:wall
+0.247) and what this build's glass no longer is. On the off arm of all 12 station views, scored
+pixel by pixel against glaz-probe's packed-texel classes (`glass-sweep`'s `detectorAgreement`):
+
+                      scored   glass B/R   shift   pane:wall   its "pane" is glass   finds of the glass
+    noon, record       12        1.298     1.113     0.461          unmeasured           unmeasured
+    noon, today        11        1.155     1.178     0.228          53% (38% wall)          34%
+    golden, record     12        0.819     0.885     0.436          unmeasured           unmeasured
+    golden, today      11        0.545     0.845     0.255          35% (34% wall)          34%
+
+The worst view is 1% glass at noon and 2% at golden. So today's reading on the record's instrument
+is a blend of glass and the wall and shadow it takes for openings, and it reads LESS blue than the
+record for exactly that reason - the record's 1.298 cannot be reproduced as a glass number on this
+build. Whether the record's own run was contaminated the same way is unmeasured: it needs c556937
+captured with masks (its reveals were painted dark then, which favours the detector).
+
+**The reference, station-matched and re-derived.** The 12 station photographs, reprojected afresh
+(the views are not tracked), reproduce pane-tint-ref-before.json per view to a median 0.5% in glass
+B/R, and their medians - glass B/R 0.807, wall 0.898, shift 0.973, pane:wall 0.249 - match the full 317
+(0.804 / 0.889 / 0.915 / 0.247). And they are not a noon: every one is dated 2024-10-13, when the sun's
+declination is -9.2 degrees and at 27.3 N it never rose above 53.4 degrees (one panorama checked by eye
+reads 42); the engine's noon puts it at 75.6 and golden at 8.0. The photographs sit BETWEEN the two
+presets, so neither preset hitting 0.807 exactly is evidence of anything.
+
+**Instruments, and what was proved about them before they were believed.**
+- `tools/glaz-probe.mjs` GLZ_ARMS: every arm off ONE page load, camera, streamed district and frozen
+  cloud deck. The four mask passes read neither the arm nor the light, so they are taken once per view
+  and shared - and that is ASSERTED: on the first view they are re-taken under the last arm and at the
+  second hour and must be byte-identical (both held). Unset, the capture is what it always was.
+- `tools/glass-sweep.mjs`: the levers enter the frame linearly in scene-linear radiance (fixed exposure
+  per hour, no adaptation, TRANSFER.aces inverts the composite), so four arms give the whole (F0 scale,
+  room level) surface. A fifth arm is SHOT and must be PREDICTED: `mid` (F0 x0.5, K 0.25) predicted
+  1.420 / 0.333 against a measured 1.421 / 0.333 at noon and 0.517 / 0.435 against 0.516 / 0.436 at
+  golden, worst single view 0.18% and 0.43% in glass B/R.
+- The photographs' detector on an engine arm: a surface point is encoded through the renderer's own
+  forward chain (round-trip 1.8%) and upscaled 2x so the detector's pixel floors mean what they mean at
+  1280x960. Validated on the station photographs themselves - native against 640-then-2x - at median
+  ratios glass B/R 0.991, pane:wall 0.987, shift 0.992.
+- **The flat-fill reading, decided BEFORE the sweep**: on the exact pane masks, above the horizon,
+  each 4-connected pane's p90/p10 of scene-linear luminance (1.00 is a flat fill), the share of panes
+  under 1.25, and the cv of pane means across the frame. `paneStructure` in glaz-probe, with known-bad
+  cases in its selftest. The decision rule written down with it: F0 to a physical anchor, the room's
+  level inside a physical band, and **the flat-fill reading must not fall below the off arm**.
+- The 192 frames span two runs (the container was replaced mid-sweep). Every frame stamps the module it
+  was RENDERED with, and all 192 carry one: materials.js a00fd2790d20, facades.js 78ee34f11e61. The
+  second run's log also prints SOURCE DRIFT, because the module on disk was edited under it (the
+  default and the setter; not one GLSL line) - true about the disk, not about the pixels.
+
+**One term at a time** - 12 station views at 640x480, medians of per-view numbers on the shader's own
+glass mask, scene-linear, above the horizon:
+
+    NOON                                 glass B/R   shift   pane:wall   p90/p10   flat   pane cv
+    off - the build                        1.341     1.281     0.511      2.367     8%    0.357
+    F0 x0.3, no room                       1.362     1.415     0.328      1.924     8%    0.304
+    roughness x2                           1.253     1.244     0.496      2.334     3%    0.364
+    room at K 0 (the coating's fill gone)  1.472     1.364     0.425      2.275     4%    0.363
+    room at K 0.5                          1.314     1.282     0.507      2.302     2%    0.341
+    F0 x0.3, room K 0                      1.622     1.595     0.232      1.738     9%    0.283
+    F0 x0.3, room K 0.5                    1.298     1.362     0.328      1.854     7%    0.341
+    F0 x0.3, room K 0.3 (surface)          1.404     1.441     0.289      1.816     7%    0.308
+    CANDIDATE F0 x0.4, room K 0.3          1.400     1.432     0.316      1.911     6%    0.317
+
+    GOLDEN
+    off - the build                        0.469     0.907     0.681      2.445     0%    0.487
+    F0 x0.3, no room                       0.514     0.842     0.404      1.993     5%    0.421
+    roughness x2                           0.434     0.882     0.770      2.536     0%    0.473
+    room at K 0                            0.504     0.926     0.595      2.482     0%    0.521
+    room at K 0.5                          0.462     0.905     0.683      2.522     0%    0.493
+    F0 x0.3, room K 0                      0.518     0.888     0.329      1.860    10%    0.455
+    F0 x0.3, room K 0.5                    0.495     0.828     0.415      1.997     4%    0.438
+    F0 x0.3, room K 0.3 (surface)          0.503     0.844     0.380      1.955     6%    0.433
+    CANDIDATE F0 x0.4, room K 0.3          0.510     0.855     0.412      2.062     3%    0.437
+
+(Pixel-pooled, the candidate takes noon B/R 1.517 -> 1.449 and pane:wall 0.442 -> 0.272; pooled and
+median disagree on the sign of the noon B/R move, so neither is quoted as a gain.)
+
+**Why B/R does not close, by decomposition.** The arms split each glass pixel exactly: the room at K 0
+is pure specular (it removes the coating's diffuse and adds nothing), the K-0 pair at F0 x1 and x0.3
+differ in 0.7 of the F0 reflection, the rest is the F90 rise no F0 scale reaches, and off minus room-K0
+is the diffuse the room replaces. Pooled over 237,647 glass pixels:
+
+                         noon share   B/R       golden share   B/R
+    specular              0.816      1.705         0.869      0.621
+      of which F0         0.574      1.688         0.647      0.616
+      of which F90        0.242      1.748         0.222      0.634
+    coating diffuse       0.184      0.896         0.131      0.428
+    room, per unit K      0.419      0.826         0.329      0.371
+
+The reflection carries the pane's colour, the F0 and F90 halves carry the SAME colour, and the warm
+terms are a fifth of the light. At F0 x0.4 a room would have to be as bright as the reflection (K 0.96)
+to bring noon to B/R 1.2, 2.8x it (K 2.79) for 1.0, and 6.8x it (K 6.63) for the photographs' shift;
+the photographs' 0.807 is out of reach at any K, because the room's own light is 0.819. A daylit room
+at noon is of the order of 5-7% of a sunlit wall through the glass (a photometric estimate, not a
+measurement), and K 0.3 lands there: 23% of the candidate pane's light at noon and 19% at golden, which
+is 6-7% of its wall. (`glass-sweep` prints all of this as WHERE THE COLOUR COMES FROM.)
+So the record's diagnosis was half right: the mirror IS too strong
+(pane:wall), and weakening it does not touch the blue (hue). What the glass reflects is the colour.
+
+**The candidate, and the rule it was held to.** F0 x0.4 (the shipped coatings' mid-pane 0.18-0.27 to
+0.07-0.11, tinted and low-e stock) with a room at K 0.3 (the stock's 0.55 transmission times the half
+of the outside a surface just inside the glass line sees). Against the off arm it takes pane:wall to
+0.316 at noon and 0.412 at golden, toward the photographs' 0.249, and the photographs' own detector
+finds the glass far more often - its pane class 53 -> 64% glass at noon and 35 -> 53% at golden, and
+it finds 34 -> 50% and 34 -> 41% of the glass. **And it fails the rule written for it**, at both hours:
+p90/p10 2.367 -> 1.911 and 2.445 -> 2.062, pane cv 0.357 -> 0.317 and 0.487 -> 0.437, and at golden
+flat panes 0% -> 3%. No point on the surface with the room on reaches the off arm's noon p90/p10 at any
+K up to 0.7: the room replaces a fill that carries the coating's painted head-to-cill gradient, and at a
+physical K it is dimmer than that fill.
+
+**Isolating the room did not earn it a place.** At the same F0 scale (x0.3) the room at K 0.3 against
+no room: p90/p10 1.924 -> 1.816 at noon and 1.993 -> 1.955 at golden, cv 0.304 -> 0.308 and 0.421 ->
+0.433. It trades a little structure inside a pane for a little variety between panes and does not
+restore what the mirror lever removes. **A 7-view reading earlier in the round said the opposite** -
+the room "improves every structure number against the mirror alone", and the candidate's noon p90/p10
+going UP, 1.561 -> 1.605 - and the five views that came after reversed both signs: their panes carry
+more structure in the off arm, and that is what the mirror lever cuts. Recorded because a subset that
+agreed with the hypothesis was nearly written up as the result.
+
+**Dusk and night, one view** (1016356973802321-L, masks from the same camera's own capture):
+
+    dusk   off   B/R 1.321  shift 1.257  pane:wall 0.726  p90/p10 2.56  flat 18%  cv 0.297
+           cand  B/R 1.154  shift 1.099  pane:wall 0.411  p90/p10 2.95  flat  9%  cv 0.298
+    night  off   B/R 0.304  shift 1.198  pane:wall 3.531  p90/p10 5.40  flat  0%  cv 2.273
+           cand  B/R 0.289  shift 1.132  pane:wall 1.889  p90/p10 5.06  flat  0%  cv 2.042
+
+At dusk the candidate passes all three flat-fill numbers on that view. At night the room is dark by
+construction (lit by its window; glass-room asserts a black room with the sun and sky off) and the
+lit-window emissive is untouched, so the night drop is the reflection.
+
+**DECISION: IT SHIPS OFF, and the blind pair is the measurement the rule cannot make.** The candidate
+fails its own rule at both hours and does not move the number the entry was filed about; the one
+thing it does well - glass that reads as an opening dark against its wall - is a judgement about
+appearance, and the rule's p90/p10 cannot tell content from a gradient painted identically into every
+window. So the default is the build before, bit for bit (glass-room renders the UNTOUCHED default
+and the switched-off material against a replica of the pre-#36 material: max |d| 0 on every recipe),
+and the candidate is `setGlassRoom('candidate')`, ground-albedo's `glass1`. The pair:
+`docs/shots/g36-glass0-{corridor,fivepoints}-{noon,golden}.png` (off: the build) against
+`g36-glass1-...` (the candidate), off ONE page load at 54ae702 with the cloud deck frozen, no
+pedestrians and the arm order alternated; `docs/g36-audits.json` holds each frame's read-back arm.
+Blind set: `node tools/blind-compare.mjs g36-glass0 g36-glass1 --roi 900,80,1560,480`. The corridor
+pairs move 1.77% / 1.87% of the frame and 3.56% / 3.82% of the facade band, under the 8% line, so
+they enter on the region over the right-hand office's glazed floors, 8.19% / 8.70%, and their ground
+band is byte-identical: a small change, said so. Fivepoints moves 4.69% / 5.36% frame-wide and passes
+on its bands - and carries ONE traffic car in a different place between its two frames (a 160x60 px
+patch at road level, x 977-1136 at noon and 792-998 at golden), which is traffic and not the change.
+
+**Refused, each with its number.**
+- **The coating lever**: exhausted, the record's `pane_BR ∝ coating_BR^0.68`; nothing here changes it.
+- **Roughness x2**: the only arm that moves noon B/R toward the photographs (1.341 -> 1.253) without
+  moving pane:wall, and it pays at golden (0.469 -> 0.434, away from 0.807; pane:wall 0.681 -> 0.770).
+  A rougher pane than the stock has no physical anchor.
+- **The mirror lever alone**: darker and flatter - p90/p10 2.367 -> 1.924 and 2.445 -> 1.993, cv down
+  at both hours, golden flat panes 0% -> 5%. The record's predicted failure, measured.
+- **A room bright enough to warm noon**: K 0.96-6.63 against a physical 0.15-0.30.
+
+**Cost: none in the gate's units, measured on the live page.** The hero A/B's own audits, candidate
+against off, same frame: draw calls 165 / 165, 177 / 177, 185 / 185 and 197 / 197, triangles
+632,827 / 632,827, 647,345 / 647,345, 665,358 / 665,358 and 679,876 / 679,876 (corridor noon and
+golden, fivepoints noon and golden). At a station view the pristine build and the patched build
+switched off read 198 / 198 calls, 611,565 / 611,565 triangles, 74 / 74 programs. glass-room asserts
+ONE program draws every recipe, and the levers are uniforms read inside it, so no setting of them can
+compile another. No geometry is added, so the shadow-bill multipliers price it at zero. The room costs
+ALU on glass texels only, inside a branch the mask closes; GPU time is UNMEASURED - SwiftShader timing
+here is not a performance number.
+
+**Gates.** `glass-room` (17 checks: a purpose-built page through the real facade material; the
+untouched default and the switched-off arm bit for bit against a replica, the candidate on glass
+only, lit by its window, registered to the facade's own floor bands, a room and not a fill, tints kept,
+one program) and its `--selftest`; selftests for `glass-sweep` (with `detectorAgreement`),
+`glaz-probe` (the GLZ_ARMS path and `paneStructure`) and `pane-tint`. Eleven mutation rows, each run
+ALONE on a committed tree (63a141e), every one caught by the check written for it and none by a
+timing line: glass-room-leak, -default-on, glass-mirror-default, glass-mirror-ignored,
+glass-candidate-retuned, glass-room-unlit, -world-height, -flat, -tint-grey, -one-geometry and
+-ceiling-in-pane (that last one by the selftest as well).
+
+**Unmeasured, plainly.**
+- GPU time of the room's branch.
+- The sky the glass reflects, like for like. A first comparison of the detector's sky class in the
+  photographs and the engine at the same stations was refused rather than quoted: on the 7 views it
+  ran over, the photographs show sky at 3 where the engine shows it at all 7, so the two sample
+  different elevations. Whether the engine's noon sky is bluer than Sarasota's is the next lever's
+  question, and an elevation-matched comparison is the instrument it needs.
+- The detector's precision on the PHOTOGRAPHS: there is no mask there, so "real glazing reads 0.804"
+  is itself a reading of whatever the detector picks.
+- The record's own detector precision (c556937, captured with masks).
+- The arms at 1280x960: the sweep is 640x480, the detector path validated against native on the
+  photographs at median ratios of 0.99.
+- The candidate at night over more than one view, and the blind review itself.
+
+#### THE RECORD THIS ROUND STARTED FROM, kept verbatim
 ### #36 OPEN, detail recovered — building glass at noon is 1.30 B/R against a photographed 0.804, and the coating lever is exhausted
 Recovered from PROGRESS.md's "Glass: bronze" round, which the backlog lost. On one detector over
 **317 reference photographs** real glazing reads B/R **0.804** (stable 0.796-0.899 across all four
