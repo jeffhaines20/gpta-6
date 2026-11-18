@@ -84,7 +84,17 @@ export function frameStats(L, cls, w, h) {
     glassBR, wallBR, shift: glassBR / wallBR,
     paneWall: G[4] && W2[4] ? (G[3] / G[4]) / (W2[3] / W2[4]) : NaN,
     modulation: st.modMedian, flatFrac: st.flatFrac, paneCV: st.cv, glassPx: G[4],
+    // The sums, so a caller can POOL over views by pixel rather than take a median of per-view
+    // ratios - a view with five panes weighs as much as one with fifty in a median.
+    sums: { gR: G[0], gB: G[2], gY: G[3], gN: G[4], wR: W2[0], wB: W2[2], wY: W2[3], wN: W2[4] },
   };
+}
+/** Pixel-pooled glass B/R, shift and pane:wall over a list of frameStats results. */
+export function pooled(list) {
+  const t = { gR: 0, gB: 0, gY: 0, gN: 0, wR: 0, wB: 0, wY: 0, wN: 0 };
+  for (const x of list) for (const k of Object.keys(t)) t[k] += x.sums[k];
+  const glassBR = t.gB / t.gR, wallBR = t.wB / t.wR;
+  return { glassBR, wallBR, shift: glassBR / wallBR, paneWall: (t.gY / t.gN) / (t.wY / t.wN) };
 }
 
 /**
@@ -170,6 +180,20 @@ function selftest() {
   ck('frameStats reads a built glass B/R 2.000, wall 1.000, pane:wall exact',
     Math.abs(fs1.glassBR - 2) < 1e-9 && Math.abs(fs1.wallBR - 1) < 1e-9 && Math.abs(fs1.paneWall - wantPW) < 1e-9,
     `${fs1.glassBR.toFixed(4)} / ${fs1.wallBR.toFixed(4)} / ${fs1.paneWall.toFixed(4)} want ${wantPW.toFixed(4)}`);
+  // pooled() weighs by pixel. Two frames: a big one at glass B/R 2 and a five-pixel one at B/R 0.5. The
+  // pool must sit at the big one's value; a mean of the two ratios (1.25) is the error it exists to avoid.
+  {
+    const mk = (nG, br) => {
+      const n2 = nG + 40, c2 = new Uint8Array(n2), L2 = { r: new Float64Array(n2), g: new Float64Array(n2), b: new Float64Array(n2), n: n2 };
+      for (let i = 0; i < n2; i++) {
+        if (i < nG) { c2[i] = 1; L2.r[i] = 0.05; L2.g[i] = 0.06; L2.b[i] = 0.05 * br; } else { c2[i] = 2; L2.r[i] = L2.g[i] = L2.b[i] = 0.3; }
+      }
+      return frameStats(L2, c2, n2, 1);
+    };
+    const P = pooled([mk(4000, 2), mk(5, 0.5)]);
+    ck('pooled() weighs by pixel: 4000 px at B/R 2 and 5 px at 0.5 pool to 1.998, not the 1.25 a ratio mean gives',
+      Math.abs(P.glassBR - (4000 * 0.1 + 5 * 0.025) / (4005 * 0.05)) < 1e-9 && P.glassBR > 1.99, P.glassBR.toFixed(4));
+  }
   // The forward encode must be what TRANSFER.aces inverts, or every detector reading is off by the
   // mismatch: round-trip a range of ACES inputs, inside 2% where 8 bits can resolve it.
   let rt = 0;
@@ -236,11 +260,13 @@ if (IS_MAIN && !process.argv.includes('--selftest')) {
   for (const tod of ['noon', 'golden']) {
     const R = rows.filter((r) => r.tod === tod);
     console.log(`\n${tod.toUpperCase()}  n=${R.length} views  (medians of per-view numbers; scene-linear, above the horizon)`);
-    console.log('  measured arm      glass B/R   wall B/R   shift   pane:wall   modulation   flat%   pane cv');
+    console.log('  measured arm      glass B/R   wall B/R   shift   pane:wall   modulation   flat%   pane cv     (pooled by pixel: B/R / shift / pane:wall)');
     for (const a of ['off', 'mir30', 'rough2', 'r1k0', 'r1k5', 'r3k0', 'r3k5', 'mid']) {
       const m = (k) => median(R.map((r) => r.measured[a][k]));
+      const P = pooled(R.map((r) => r.measured[a]));
       console.log(`  ${a.padEnd(16)}  ${f3(m('glassBR')).padStart(8)}   ${f3(m('wallBR')).padStart(8)}   ${f3(m('shift'))}   ${f3(m('paneWall')).padStart(8)}   `
-        + `${f3(m('modulation')).padStart(9)}   ${(100 * m('flatFrac')).toFixed(0).padStart(4)}   ${f3(m('paneCV'))}`);
+        + `${f3(m('modulation')).padStart(9)}   ${(100 * m('flatFrac')).toFixed(0).padStart(4)}   ${f3(m('paneCV'))}`
+        + `     pooled ${f3(P.glassBR)} / ${f3(P.shift)} / ${f3(P.paneWall)}`);
     }
     const pm = (k) => median(R.map((r) => r.predictedMid[k]));
     const mm = (k) => median(R.map((r) => r.measured.mid[k]));
@@ -271,8 +297,10 @@ if (IS_MAIN && !process.argv.includes('--selftest')) {
       if (key !== 'off') {
         const T = R.map((r) => r.pick[key]);
         const t = (k) => median(T.map((x) => x[k]));
+        const P = pooled(T);
         console.log(`  ${''.padEnd(10)} truth: glass B/R ${f3(t('glassBR'))}  shift ${f3(t('shift'))}  pane:wall ${f3(t('paneWall'))}  `
-          + `modulation ${f3(t('modulation'))}  flat ${(100 * t('flatFrac')).toFixed(0)}%  cv ${f3(t('paneCV'))}`);
+          + `modulation ${f3(t('modulation'))}  flat ${(100 * t('flatFrac')).toFixed(0)}%  cv ${f3(t('paneCV'))}`
+          + `   pooled ${f3(P.glassBR)} / ${f3(P.shift)} / ${f3(P.paneWall)}`);
       }
     }
   }
