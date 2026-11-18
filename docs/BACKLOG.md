@@ -6351,6 +6351,286 @@ play. And at night nothing darkens the road under a car once #138's guard stops 
 through the sill: the lamps cast no shadow, so a contact term for cars (an occlusion footprint) is the
 candidate there. Order: #141 first, then #138 re-reviewed with both arms carrying it.
 
+### #142 OPEN, ROUND 2 BUILT, NOT YET BLIND-REVIEWED: AN UNLIT GLOBE AS A FROSTED SHELL — it takes the sun's shadow, its colour is neutral, and it passes on the light it does not reflect; the photocell is unchanged
+
+**Built on wip/dusk-142 (f8b440a for the code, 46e520c for the captures), with the working branch merged in at 8d0f36a; not merged.** Round 1's
+photocell stands as it was. This round answers the blind review that refused it: an unlit globe read as an
+"orange, opaque ball" where the lit one read as glass. Every number here is linear light within one frame, and
+every statistic is read with one instrument, `tools/globe-glass-stats.mjs`. It is used offline, on the district
+page and on the gate's page:
+
+- **globe pixels:** the projected circle less 0.7 px of rim, inside the reviewer's box, with occluders dropped
+  (anything at or under 0.25 of the median);
+- **caps:** where |n_y| > 0.4;
+- **under/top:** the under cap's luminance over the top cap's;
+- **cast:** (R-B)/(R+G+B) of the under cap;
+- **globe/sky:** the globe's luminance over the reviewer's sky box.
+
+**The reviewer's statistics, reproduced on round 1's own frames, in its own boxes** (`globe-glass --reviewer`;
+mine against the reviewer's in brackets):
+
+    corridor main (leaf dropped, 74 px)   lit  0.573 (0.625)  0.435 (0.438)  0.814 (0.82)    unlit 0.397 (0.473)  0.535 (0.541)  0.588 (0.59)
+    fivepoints top-left                   lit  0.509 (0.53)   0.444 (0.436)  0.659 (0.659)   unlit 0.370 (0.377)  0.552 (0.538)  0.546 (0.537)
+    fivepoints left (the box crops it)    lit  0.584 (0.506)  0.411 (-)      0.637 (0.636)   unlit 0.450 (0.39)   0.489 (-)      0.512 (0.508)
+
+- **globe/sky** agrees within 0.009 at all six readings.
+- **The cast** agrees within 0.014 at the four the reviewer gave.
+- **under/top** agrees on the best-resolved globe, fivepoints top-left (0.021 and 0.007).
+- It does not agree on the other two: corridor reads 0.05-0.08 low, where the leaf takes 74 of 265 px, and left
+  reads 0.06-0.08 high, where the box cuts the globe. The cap mask decides the absolute value, and the
+  reviewer's mask is not known.
+- **What reproduces at every globe is the gap between the arms:**
+
+      corridor     0.176 against the reviewer's 0.152
+      top-left     0.139 against 0.153
+      left         0.134 against 0.116
+
+  That gap is what the gate below is built on: each check compares two arms on one page, not an absolute
+  under/top.
+
+**The three terms, one at a time, in the district** (`globe-glass --district`, docs/globe-glass-r2-terms.json).
+The setup:
+
+- **Load and cameras:** one page load per hero camera, with clouds frozen, no traffic and no pedestrians.
+- **Hours:** each hour settled, then every finish applied through the module's own lever `setGlobeFinish`, and
+  the composited frame read back.
+- **Globes:** the three globes are the ones nearest the reviewer's boxes. Fivepoints' left globe is lamp 831
+  here and was 837 in round 1's frames, the same globe at the same 65.27, 281.89 px: #148 removed six lamps.
+- **The probe's gain:** it ran the transmitted light at 0.55, and the shipped gain (below) is 0.5516.
+
+Each cell is under/top, cast, globe/sky. The columns are corridor main, fivepoints top-left and fivepoints left.
+
+    DUSK (the photocell holds the street lamps off)
+    before           0.488 0.531 0.554   0.369 0.551 0.544   0.450 0.489 0.512
+    +shadow          0.422 0.474 0.467   0.309 0.503 0.477   0.396 0.444 0.449
+    +neutral         0.481 0.481 0.549   0.363 0.508 0.541   0.445 0.452 0.510
+    +transmit        0.738 0.362 0.816   0.540 0.370 0.689   0.572 0.361 0.643
+    all three        0.689 0.248 0.720   0.487 0.266 0.623   0.527 0.269 0.580
+    before, lit      0.695 0.433 0.770   0.508 0.443 0.657   0.583 0.412 0.636    <- the globe lit on the same page, as in the build the review preferred
+    GOLDEN (unlit in every build)
+    before           0.535 0.312 0.336   0.516 0.321 0.507   0.547 0.300 0.520
+    +shadow          0.529 0.310 0.330   0.502 0.327 0.488   0.530 0.306 0.496
+    +neutral         0.529 0.238 0.334   0.512 0.263 0.505   0.545 0.250 0.518
+    +transmit        0.977 0.255 0.840   0.777 0.240 0.860   0.678 0.240 0.784
+    all three        0.840 0.137 0.614   0.773 0.190 0.848   0.670 0.194 0.769
+    NIGHT: 1.010 0.003 1.059 / 1.000 0.003 4.100 / 0.998 0.004 4.096 under all seven finishes, byte for byte
+
+Read term by term:
+
+- **The shadow alone takes 8-11% off the top cap and 20-23% off the underside at dusk.** At a 3.2-degree sun
+  the direct beam reaches both caps nearly equally, so removing it takes a larger share of the dimmer underside.
+  That makes the globe look MORE like a ball by under/top (0.488 -> 0.422). It is right all the same: these
+  globes stand in street canyons whose buildings shade them from a sun that low, and before this round they
+  took the whole beam wherever they stood (round 1's 16-19% "direct sun" was that).
+- **The neutral colour alone moves only the cast**, by 0.04-0.05, so most of the orange is the light and not
+  the paint.
+- **The transmitted light is the term that does the work.** It moves all three statistics, and it is what turns
+  the cast: alone, 0.36-0.37 against 0.49-0.55, because the glow is the MEAN irradiance over the sphere, and the
+  mean is mostly sky.
+- **All three together put the unlit globe's underside under the reviewer's 0.33 white bound at every globe
+  (0.248-0.269).** That is under the lit build's 0.41-0.44. Its under/top (0.49-0.69) is within 0.06 of the lit
+  build's at each globe, and around the reviewer's shell model of 0.55 (mean 0.568). Its globe/sky stays under
+  the lit build's (0.58-0.72 against 0.64-0.77), as an unlit globe should.
+- **Night is identical to the byte under every finish.** That is evidence only up to the clip, because the lit
+  globe is at 0.99 of white there, so the gate re-measures it below the clip.
+
+**What shipped: `GLOBE_FINISH` in src/streetfurniture.js, three terms, each its own lever (`setGlobeFinish`).**
+`GLOBE_FINISH_BEFORE` is kept as a value so a tool can draw the build before.
+
+1. **The shadow, looked up at the ray's hit.** The heads now receive the sun's shadow. They cannot do it the way
+   three does, at the vertex: every vertex of a globe card is the globe's centre, inside the sphere and behind
+   the disc the globe casts in the sun's pass, so a globe would shade itself in full sun. The lighting chunk's
+   shadow coordinate is therefore rebuilt at the hit, offset along the sphere's normal by the shadow's own
+   normalBias. The seam is asserted and asserted unique.
+2. **A neutral shell, 0xd2d2d2.** It has 0xd8d2c4's luminance (linear 0.6445 against 0.6468) and none of its
+   cast (0 against 0.0715).
+3. **The light the shell passes on.** It is a uniform glow at `uGlobeTransmit` x the shell's diffuse colour x the
+   MEAN irradiance over the sphere / pi. The mean is the environment and the hemisphere lights averaged over
+   six axes, plus a quarter of each direct beam, shadowed at the pole that faces it. It is added after
+   `lights_fragment_end`.
+   - A thin diffusing shell of reflectance R and transmittance T, with the light that enters reflected around
+     inside it, glows at T^2 / (1 - R) of that mean.
+   - The gain is DERIVED, not picked (`globeShellGain`). A shell that absorbs nothing has T = 1 - R, which makes
+     the gain (1 - R) / R. That is 0.5516 for 0xd2d2d2, where the probe had used 0.55.
+   - At that gain the sphere hands back exactly the light it receives, because R x E(N) averages to R x the mean
+     over a sphere. So in a uniform field it is exactly as bright as a white ball, and the gate measures that.
+   - It is an UPPER bound. Real opal glass absorbs some of what it does not reflect, and how much a lamp globe
+     absorbs is not measured here. No source for it was read: the one a search turned up, a university lighting
+     guide, returned 404.
+   - At night the lit globe's own emission swamps the glow (below).
+
+**The gate: `tools/globe-glass.mjs` on `tools/globe-glass.html`, 16 of 16 in 4.5 s.**
+
+- **The scene.** The module's own lamp stands beside a white ball of the same radius, a plain
+  MeshStandardMaterial and the opaque reference the reviewer's bounds are about. The colour arms use a grey
+  ball of the shell's own luminance instead. Each subject is seen head on by its own camera, and both stand
+  under the dusk preset's light:
+  - its sun, at its 3.2-degree elevation and casting with the district's own SUN_SHADOW (a 0.117 m texel, its
+    normalBias);
+  - its sky and ground colours as a hemisphere light;
+  - a gradient dome that is both the environment and the visible sky beside the ball.
+- **The arms.** Thirteen arms come off one load, and each is the shipped finish with ONE term changed. Each
+  check reads one term against its own known-bad, and every known-bad runs on every pass.
+
+    arm               globe: under/top   cast    globe/sky   sun side  |  ball: under/top   cast    ball/sky
+    ship                       0.567   0.0403     1.295     0.1251   |         0.434   0.1906     1.388   white
+    before                     0.439   0.2612     0.905     0.0907   |         0.434   0.1906     1.388   white
+    shadow off                 0.571   0.0536     1.312     0.1256   |         0.434   0.1906     1.388   white
+    transmit off               0.435   0.1919     0.901     0.0900   |         0.435   0.1920     0.901   grey, both unshadowed
+    0xd8d2c4, transmit off     0.439   0.2612     0.905     0.0907   |         0.435   0.1920     0.901   grey, both unshadowed
+    ship, wall                 0.498  -0.1953     1.001     0.0854   |         0.317  -0.1418     0.998   white
+    shadow off, wall           0.571   0.0536     1.312     0.1256   |         0.317  -0.1418     0.998   white
+    furnace (uniform field)    globe over ball x1.0000; the build before x0.6511; twice the gain x1.3550
+    night, lit                 x1.0000 of the build before's mean, cast 0.3185 in both, top cap 0.399 (no clip)
+    night, unlit               0.0000 of the lit globe
+
+What it asserts (16 checks, with a selftest of 25 on the instrument and on doctored reports):
+
+- **The shadow.**
+  - A wall between the sun and the lamp shades the globe's sun side as it shades the ball's.
+  - With the term off, the wall changes nothing on the globe.
+  - In open sun, the lookup at the hit takes nothing off a sunlit globe.
+- **The colour.**
+  - With the transmitted light and the shadow held off on both subjects, the underside's cast is that of a
+    neutral grey ball of the shell's luminance.
+  - 0xd8d2c4 reads 0.04 or more warmer than that grey ball.
+  - The shipped underside is no more orange than white in the same light: the reviewer's bound, defined on
+    this page's own white. The build before fails it.
+- **The transmitted light.**
+  - under/top lifts by at least 0.10 over the ball's, and with the light off it is the ball's.
+  - globe/sky rises by x1.10 over the build before, and without the light it does not.
+  - In a uniform field the lossless shell is as bright as the white ball, while the build before reads its
+    albedo and twice the gain reads brighter than white. That last one is energy, measured: the furnace test.
+- **The night.** Read through a linear tone map at an exposure that puts the lit globe at 0.4, so below the
+  clip, a lit globe's mean is within 1% of the build before's and its cast within 0.01. An unlit globe at night
+  is a small fraction of it.
+
+**Two wrong versions of the page, both found by the page itself.**
+
+1. **One camera between the globe and the ball.** It saw the globe 5.7 degrees from its sunward side and the
+   ball 5.7 degrees from the other side, under a sun on the right.
+   - **What it printed:** the colour check passed at 0.0115 of cast against the white ball, then at 0.0104
+     against a grey ball of the shell's albedo, both under a 0.012 bound. I wrote "0.010 of cast, the two
+     shadow paths" into the page and the gate.
+   - **What it was:** that 0.010 is two terms of opposite sign. With the shadow off on both subjects the view
+     alone put the shell 0.031 warmer than a grey ball of its own albedo (0.2063 against 0.1755). The shadow
+     paths were the other term, -0.021, below. Both comments now state the two terms (46e520c).
+   - **The fix:** each subject is seen head on by its own camera. Unshadowed, the impostor and a 128x96 sphere
+     in the same grey then match to the fourth decimal: under/top 0.435 and 0.435, cast 0.1919 and 0.1920, top
+     cap 0.10265 and 0.10264.
+   - **The rule:** an A/B of two subjects needs each subject seen the same way, or the view is a term in it. A
+     small residual can be two large terms cancelling.
+2. **`flat` is a reserved word in GLSL ES 3.0.** The sky dome's uniform took the page down on its first run,
+   so it is `uFlat` now.
+
+**One residual the gate prices rather than removes: the shell shades its own terminator.** In open sun, head
+on, with the transmitted light held off:
+
+- the shell loses 1.7% off its top cap and 3.9% off its underside, and reads 0.021 bluer underneath;
+- the grey ball is identical with its shadow on and off;
+- with the light on, the loss is 1.3% and 2.1%, and the sun side 0.4%, which the gate allows up to 3%.
+
+**The cause.** The shell's shadow-map depth is its own FRONT surface (`globeDepthMaterial`), so near the
+terminator the PCF taps compare the hit with the sphere bulging toward the sun beside it. A three mesh draws its
+BACK faces into the map. At dusk in the district the term takes 8-11% and 20-23% off, so building shade is most
+of it. Moving the globe's depth to its back surface is #140/#141's shadow to re-derive, so it is not done here.
+
+**Restated in the same change:**
+
+- `tools/globe-round.html`'s shading section compares the impostor's GEOMETRY against a 96x64 sphere in a
+  plain 0xd8d2c4 material. It now draws the shipped head in that plain material's finish
+  (`GLOBE_FINISH_BEFORE`) for the comparison and restores it after, so it keeps measuring geometry. The finish
+  is globe-glass's to judge.
+- `mutation-sweep`'s `globe-unpatched` row had gone STALE, because the material is now built before it is
+  patched (the finish's uniform has to be on it first). It is repointed by its intent: the patch line dropped.
+
+**Mutation rows, each run alone.** Each row ran through `--only`, so through the whole 58-entry list, in 2.8-3.6 minutes, with the tree clean after
+every one. All six are caught, and the five new ones by globe-glass alone. The sweep prints only the first
+check a row trips, so for the three rows marked * the rest were named by applying the row by hand:
+
+    globe-shadow-off       the wall, the globe x1.000 against the ball's x0.614
+    globe-shadow-centre *  open sun x0.723 (a lookup at the centre shades a sunlit globe by 28%), the wall x0.940,
+                           and the lift (+0.087)
+    globe-warm             the colour, 0.2612 against the grey ball's 0.1920
+    globe-transmit-off  *  the derivation (0 against 0.5516), the lift (-0.009), globe/sky, and the furnace
+    globe-transmit-mean *  the clip (a byte at 255), the wall (x0.830, under half the ball's drop), and the
+                           furnace (x2.791 of a white ball)
+    globe-unpatched        (repointed) globe-level, globe-round and globe-glass
+
+Nothing else on the list reads an unlit globe, which is why the five new rows fall to one gate. globe-level
+lights it, and globe-round now compares its geometry in the plain material's finish.
+
+**Captures, two page loads per framing, and why not one.**
+
+- **The arms:**
+  - BEFORE is `d142r2b`, the working branch at 8d0f36a: today's build, with the street lamps lit at dusk by
+    `lampsOn`. It is served from an export.
+  - AFTER is `d142r2`, this tip: the photocell plus the frosted shell.
+  - Both are captured at corridor and fivepoints, at dusk, night and golden, with no traffic and no
+    pedestrians, and the cloud deck pinned at 20 s in both.
+- **One load was possible and was not taken.** Every rendering difference between the two builds is switchable
+  at runtime: the street-lamp switch in `TimeOfDay.apply()`, the pool's per-frame switch and the finish. But an
+  emulated BEFORE is not the build, and the real one is in hand.
+- **The two-load protocol registers here.** Round 1's pair, built the same way, differed by 10 isolated pixels
+  at corridor night, and this one by none (below).
+
+The reviewer's three statistics in its own boxes on the pair, `globe-glass --reviewer` with GG_PAIR
+(docs/globe-glass-reviewer-d142r2b-d142r2.json). Each cell is under/top, cast, globe/sky:
+
+                       BEFORE d142r2b         AFTER d142r2
+    corridor main
+      dusk             0.695 0.435 0.771      0.689 0.249 0.722     the lit build against the frosted unlit globe
+      golden           0.531 0.314 0.336      0.839 0.137 0.615     unlit in both: the finish alone
+      night            1.010 0.003 1.059      1.010 0.003 1.059
+    fivepoints top-left
+      dusk             0.509 0.444 0.659      0.488 0.267 0.625
+      golden           0.510 0.322 0.507      0.775 0.189 0.850
+      night            1.000 0.003 4.100      1.000 0.003 4.100
+    fivepoints left
+      dusk             0.584 0.411 0.637      0.528 0.268 0.581
+      golden           0.547 0.300 0.521      0.670 0.194 0.770
+      night            0.998 0.004 4.096      0.998 0.004 4.096
+
+**What changed in the frame.** Pixels over 4/255, counted against round 1's projected globe circles plus
+1.5 px (a one-off count, not a committed tool):
+
+    corridor    night     0 px, and the largest difference anywhere is 1 level
+    fivepoints  night    14 px in specks round (490-610, 586-608), the red car round 1's reviewer also found
+    corridor    golden  557 px, 524 on a globe
+    fivepoints  golden 2,502 px, 2,388 on a globe
+    corridor    dusk    654 px, 524 on a globe
+    fivepoints  dusk   3,186 px, 2,388 on a globe
+
+- **Night is the control and holds.** So two page loads register here to the level.
+- **Golden is the finish alone.** Every globe is brighter: luma 152 -> 196 on the top-left one. At fivepoints
+  most of the 114 px off a globe hug the two nearest globes, as their bloom; the rest are specks of up to 19 px
+  that I did not attribute.
+- **Dusk is the finish plus round 1's photocell.** Two things go off besides the globes:
+  - a lamp's specular lobe on corridor's facade, 66 px round (1040-1080, 400-440), max 129, luma 76.6 -> 37.5;
+  - #148's hotspot at fivepoints, 616 px at (1120-1160, 240-320), max 146: a lamp's glint on building 401's
+    wall at grazing incidence, and the reviewer's one mark against the lit build.
+
+**The blind set** is docs/shots/blind, six pairs, with the key beside it at
+docs/shots/blind-key-d142r2b-d142r2.json (untracked, not read). `blind-compare` refused without `--force`: 6 of
+6 pairs carry under 8% of samples over 4/255 in any band (0.06-0.42% in the best band). The arms are what they
+should be: BEFORE was served from the 8d0f36a export on :8284 and AFTER from this tree on :8285, and the
+differences lie on the globes, a lamp's lobe and #148's hotspot (above). So the set was shipped with
+`--force`, and that is the reason. The change is a few hundred to a few thousand pixels a frame, by design.
+
+**Not measured, or open:**
+
+- How much a real lamp globe absorbs. The gain is the lossless upper bound.
+- The reviewer's own cap mask. Absolute under/top at corridor and at the box-cropped left globe depends on it.
+- How the shell reads at noon. It is not captured: the gate's light is dusk, and the district probe ran dusk,
+  golden and night.
+- Whether golden is now too bright. The shell takes golden's globe/sky from 0.34-0.52 to 0.62-0.85, x1.5-1.8,
+  and its under/top to 0.67-0.84. A frosted globe in a low sun does glow, but the review is what will say.
+- Weather reaching the light on surfaces before the hour is re-applied, round 1's third finding, is not this
+  round's.
+- `mission-test`'s wall-clock line (`update() does not scale with stage count`) read x2.41 once at load 15,
+  with three browsers alive on the box, and x0.95 and x1.01 straight after. That was the box.
+
+#### #142 round 1's blind review, the record as the working branch carried it at 8d0f36a, kept verbatim (the heading above is round 2's)
 ### #142 OPEN, THE PHOTOCELL REFUSED BY BLIND REVIEW (THE LIT BUILD PREFERRED IN BOTH DUSK PAIRS, SLIGHT) — at the dusk preset a real street lamp is off, and turning ours off shows that an unlit globe is an orange opaque ball
 **Built on wip/dusk-142 (5e8b7c9, 32 commits from a2e0626), which carries the round's full record and its
 tools; not merged.** The street lamps were put on a photocell and the cars kept `lampsOn`, from the page's
