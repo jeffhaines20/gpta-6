@@ -6508,7 +6508,36 @@ street lamp off with the cars on and no flag; night at 0.4 lux with ten pool lig
 it does not after a re-apply was not traced. Either way x99-100. The offline list's 34 node gates: `34 of 34 green in 142 s` (photocell 11 checks in 0.27 s,
 its selftest 13).
 
-**Still to land in this entry** — the offline list's browser half, `daynight-sweep`, and the nine rows.
+The offline list's browser half: `18 of 18 green in 77 s` — globe-round 13 checks, its selftest 28, globe-level
+12 and 15, globe-order's selftest 13, bloom-lit 14 among them. So the whole offline list is 52 of 52.
+`daynight-sweep`, from an export of 915fd8c on :8282: `LIGHTING SWEEP: PASS` in 22 minutes, all four hours inside
+the plausible envelope with `implausible` empty; dusk's audit reads the cell at 1,623.941 lux against its 16.146
+turn-on, R48 "either", street lamps off, cars on, 0 lit point lights; the three negative tests caught (lamps at
+26 cd, the sky delivered twice, the bounce off). Its first attempt died at the NIGHT screenshot's hard-coded 150 s
+bound after noon, golden and dusk had landed, so that bound is `SWEEP_SHOT_TIMEOUT` now (2b89f92), the sibling
+of hero-shots' — the re-run used 1,200 s. Its record is committed beside the 2026-09-25 baseline rather than over
+it, as `docs/daynight-d142.json`: against that baseline the triangle column moved at every hour (noon +1,621,
+golden +4,901, dusk -216, night -349), which is two months of other rounds and not this change — the captures'
+audits hold draw calls and triangles identical between the arms. `mutation-sweep --selftest`: 19 checks, PASS.
+
+**The rows.** `mutation-sweep --only <id>`, one at a time from a clean tree, page gates on :8287, the tree clean
+after each and after the last (03:34-03:53, 2.2-2.8 minutes a row):
+
+    photocell-lampson      caught by photocell and its selftest   the verdict at dusk, the globes, the pool (6 FAILs)
+    photocell-level        caught by photocell and its selftest   "the turn-on is ANSI C136.10's 1.5 fc, in lux:
+                                                                  16.146" reads 1.5, and the x10 margin fails
+    photocell-sun-only     caught by photocell and its selftest   the cell recomputed off the lights: noon 90,088
+                                                                  against 103,164
+    photocell-apply-globe  caught by photocell and its selftest   the globes follow the cell: dusk lit at 131.5 nits
+    photocell-apply-pool   caught by photocell and its selftest   the LightPool follows it: dusk 1/1
+    photocell-audit-deaf   caught by photocell and its selftest   a lit street lamp at an hour its cell holds off: []
+    dusk-cars-dark         caught by photocell and its selftest   the cars inside R48's band at every hour
+
+Every offline row is caught by the new gate and by nothing else in the list, which is what a rule no other gate
+reads looks like — so its coverage rests on one file, and the page-side second protocol is boot-check's arm, which
+these runs did not include (`--browser` was not passed; the two host rows below are boot-check runs of their own).
+
+**Still to land in this entry** — the two host rows, boot-check against a one-line mutant export of each.
 
 **The decision.** The street lamps are OFF at the dusk preset, by a photocell computed off the light the hour
 delivers, because every number above says a real one would be: x100 its turn-on on the page, x35 under the
