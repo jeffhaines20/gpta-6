@@ -4242,6 +4242,11 @@ no faint outer tail at all. Each lamp reads as a soft ball 1.8-2.2 times its glo
 brightness, where a camera keeps the over-exposed globe as the distinct brightest disc inside a dimmer, wider
 glare.
 
+**Another instance, from #142's blind reviewer (2026-11-18), in both arms, lower confidence.** At fivepoints
+night the top-left globe's glow stays at 0.94 six pixels outside its edge and 0.64 at 14 px, then drops to the
+sky's 0.013 by 24 px: a flat plateau with a fairly sharp rim, so a globe reads as a white disc about 1.9x its
+size rather than as glare that fades out.
+
 ### #124 PARTS 1 AND 2 FIXED AND PREFERRED BLIND, 6 OF 6, THE CORNICE SHIMMER FIXED (MEASURED, 57 PX TO 0) — the star strokes were fwidth() across the star field's own cell faces, and the signal lens was a square plate; the cornice edge moved with a parked car's crawl; the foliage is #145's
 **The night-sky strokes.** At 8x the reviewer's two boxes in `r12b-bloom1-fivepoints-night`, (241-252,
 56-67) and (271-283, 66-74), are two stars each wearing 1-px straight lines — an L and a bracket.
@@ -4341,7 +4346,7 @@ The remaining three, as filed:
   no light change: 56 px along (12,340)-(439,430), 1-6 codes, so in motion it would shimmer. The
   sun's shadow box is #117's; the first question is what moved between the two captures.
 
-### #125 FOUR OF FIVE FIXED AND PREFERRED BLIND (THE ARCHES 6 OF 6, THE OTHER THREE IN THE BATCH 6 OF 6), THE FOLIAGE OPEN — what #119's reviewer found wrong in BOTH arms, cars first
+### #125 FOUR OF FIVE FIXED AND PREFERRED BLIND (THE ARCHES 6 OF 6, THE OTHER THREE IN THE BATCH 6 OF 6), THE FOLIAGE'S EDGES FIXED BY #145, ITS SHAPES OPEN (#147) — what #119's reviewer found wrong in BOTH arms, cars first
 **The side-on taillight: FIXED (0812a0e).** `overlayBand` lays the tail lens flat across the rear
 profile, so every lens triangle faced straight back. Off the buffers, 0.0 cm2 of tail lens faced either
 side on all three shells AND on the player's car, the lens stopping 6-10 cm inboard of the flank. Real
@@ -4577,7 +4582,9 @@ hours is not diagnosed.
   crossings to 1 and 2 and changes 7 of 42 fleet cap faces and 5 of 60 of the player's, far from the arch,
   so it is not a confined lever.
 
-Still open, as filed: the foliage.
+The foliage, in part: its hard alpha-cut edges and the trunks' lattice are #145's, fixed and preferred blind 6
+of 6 (fc3b3d2). The leaf clusters floating free of branches and the trunks as ribbons are not, and #147 carries
+what #145's own reviewer still found in both arms.
 
 #### #125 (as filed)
 - No lit taillight on a side-on traffic car at night except the road spill: the tail lens does not
@@ -5308,6 +5315,12 @@ contact, the parked-car umbra and its edge, prop contact, the window reveal, the
 has never been taken, and that is the first job: `ao-sweep`, `prop-ground` and `ao-noise --live`,
 one page load each, with and without. The page carries the leak's own before and after already, so
 a candidate can be checked against it in seconds.
+
+**Another instance, from #145's blind reviewer (2026-11-18), in both arms.** Corridor, the TINSMITH DELI wall
+sign at about [1422,530,1437,575]: the wall beside it [1444,530,1456,570] reads 0.150 of the wall further out
+[1464,530,1478,570] in linear light at noon and 0.464 at dusk, a dark ring 15-20 px wide round a sign the
+reviewer took for about a centimetre proud of the wall. The sign's real depth off the wall was not checked,
+and neither was the AO-off frame, so this is the shape of #138's leak and not yet a measurement of it.
 
 ### #139 MEASURED — no lamp stands in a palm; the census found a refused tree drawing half of itself
 **The census, every lamp against every palm.** It uses each palm's own parameters (`treeParams`),
@@ -6338,6 +6351,41 @@ play. And at night nothing darkens the road under a car once #138's guard stops 
 through the sill: the lamps cast no shadow, so a contact term for cars (an occlusion footprint) is the
 candidate there. Order: #141 first, then #138 re-reviewed with both arms carrying it.
 
+### #142 OPEN, THE PHOTOCELL REFUSED BY BLIND REVIEW (THE LIT BUILD PREFERRED IN BOTH DUSK PAIRS, SLIGHT) — at the dusk preset a real street lamp is off, and turning ours off shows that an unlit globe is an orange opaque ball
+**Built on wip/dusk-142 (5e8b7c9, 32 commits from a2e0626), which carries the round's full record and its
+tools; not merged.** The street lamps were put on a photocell and the cars kept `lampsOn`, from the page's
+own light meter: `tools/dusk-lamps.mjs` parks an albedo-1, specular-free, unshadowed patch face up in front
+of each hero lens and reads the horizontal illuminance off the HDR target, 1,623.9 lux at the dusk preset
+(sun 27.5 + sky 1,596.5), x100.6 the 16.146 lux (1.5 fc) a photocontrol turns on at, x35 under heavyRain.
+Every other emitter at dusk is unchanged by it (x0.998-1.000 with the pool off), the "lamps" #136's reviewer
+saw at corridor and fivepoints are the LightPool's specular lobes on facades (589.5 of a pixel's 648.4 nits;
+4,184 falling to 202), and the emissive is not what makes the globe orange: with it off every globe is
+WARMER, (R-B)/luma 1.20-1.41 -> 1.30-1.52, the orange being its sunset side. boot-check PASS 127,
+daynight-sweep PASS, nine mutation rows caught.
+
+**Blind review (2026-11-18): the build before it, slightly, in both dusk pairs.** Four pairs, corridor and
+fivepoints at dusk and night, A and B reassigned per pair. The night pairs are the control and held: the
+reviewer found corridor night differing by 10 isolated pixels at one level and fivepoints night only on a
+car, and called both "no preference". At dusk it preferred the LIT build (d142b) in both, slight, measured in
+linear light within one frame (unlit d142 against lit d142b):
+
+    globe underside / top           corridor 0.473 vs 0.625     fivepoints 0.377 vs 0.530 (and 0.390 vs 0.506)
+    underside (R-B)/(R+G+B)         corridor 0.541 vs 0.438     fivepoints 0.538 vs 0.436
+    globe / the sky beside it       corridor 0.59  vs 0.82      fivepoints 0.537 vs 0.659 (and 0.508 vs 0.636)
+
+"A's look like orange, opaque balls", where B's "look like glass" — and no light in the frame throws more than
+0.33 of (R-B)/(R+G+B) onto white (a white car's sunlit side 0.332, brick 0.328, the cloud deck 0.277, the
+asphalt under the lamps -0.09), so BOTH arms' undersides are more orange than anything could make them, and
+the unlit one by more. Its one mark against the lit build is a wall hotspot at fivepoints (1130..1158,
+245..287) from a lamp with no visible head, filed as #148. So the photocell is right about the switch and
+wrong to ship before the globe: an unlit globe has to read as frosted glass first, and this one reads as a
+matte ball (the reviewer's crude model puts an opaque white ball at an underside/top of about 0.36 and a
+translucent shell at about 0.55). What the round found and did not fix is that next job: the lamp heads cast
+shadows and do not receive them (16-19% of an unlit globe is direct sun), the globe's base colour is warm
+(0xd8d2c4), and weather does not reach the light on surfaces until the hour is re-applied. The next
+round's arms are an unlit frosted globe behind the photocell against today's lit one.
+
+#### #142 (as filed)
 ### #142 OPEN — dusk lamp globes read as painted balls darker than the sky behind them, and nothing says whether a lamp is lit at dusk
 From #136's blind reviewer (2026-10-22), in BOTH arms, so not #136's doing: at fivepoints dusk the lantern
 globes are 0.59-0.79 of the sky ring around them, with (R-B)/L 0.83-1.22 against the sky's 0.17-0.37 — an
@@ -6429,7 +6477,7 @@ none measured: the leaf cards' material does not take the LightPool's lights, or
 facing away; or the AO (whose broad darkening #141's review preferred) darkens the inner canopy and nothing
 lifts it. #139 moved lamps out of palm crowns; which species these two canopies are is not checked.
 
-### #145 FIXED ON foliage-145, BLIND SET BUILT AND NOT YET REVIEWED (A LEAF'S EDGE IS A PARTIAL PIXEL, THE TRUNKS ARE NOT LATTICES, A COVERED LEAF IS STILL LIT TO THE BLOOM; THE BARK'S TONE MEASURED AND NOT MOVED) — hard-edged foliage and pale trunks
+### #145 FIXED AND PREFERRED BLIND 6 OF 6 (merged fc3b3d2) (A LEAF'S EDGE IS A PARTIAL PIXEL, THE TRUNKS ARE NOT LATTICES, A COVERED LEAF IS STILL LIT TO THE BLOOM; THE BARK'S TONE MEASURED AND NOT MOVED) — hard-edged foliage and pale trunks
 Filed 2026-11-17 from the month's blind reviews, every one of which listed it among the things wrong in
 BOTH builds, independently. The original record is kept verbatim under "#145 (as filed)".
 
@@ -6644,6 +6692,26 @@ statement no single frame can measure. The night residual at fivepoints after th
 1,100 against corridor's 13,588). Whether the lamp-lit crown should glow at all: a photograph says leaves within a
 metre of a street lamp do, and #118 says lit light blooms only over 1.331.
 
+**PREFERRED BLIND, 6 OF 6 (2026-11-18), clear in the corridor and slight at fivepoints.** One reviewer, fenced
+to the twelve frames with `png.mjs` and `crop.mjs`, told only that the arms are two builds of the same scene.
+It found the trees to be the whole difference (every pixel more than 40 px from a strongly differing one within
+3 levels; the corridor road band 0 of 176,000 px) and called the arm it rejected "see-through": its own
+classifier, which compares each differing region with a ring both arms agree on and has a selftest that
+swaps the arms, put 137-148 see-through regions (15,966-18,559 px) on f145b in the corridor against 6-11
+(180-296 px) on f145, and 8-13 against 0-1 at fivepoints. In the same direction on every pair, f145 against
+f145b: luma steps per scanline across the corridor trunks 0.79-4.82 against 1.81-6.67; leaf/sky edges with
+no intermediate pixel 69.3-74.3% against 94.9-97.3% in the corridor; isolated sky pixels inside a canopy
+16-88 against 43-148; and the ground at the trunk bases 2-6% darker, which is the contact the lattice let
+through. It decoded the letters from the
+pixels — five signatures, none disagreeing on any pair — and its six preferences are all f145. Its
+fivepoints verdicts rest on 193-282 px of trunk a frame, 3-10 px wide, and it says so.
+
+Found in BOTH arms, filed as #147: trunk silhouettes still torn on f145 (a base-left trunk edge jumping 3 px
+or more between adjacent rows 12 times in 101, square bites 9 px deep at 1:1), one leaf card's quad outline
+standing against the sky as a straight line at -27.1 degrees, 70% of a car roof's edges and 78-87% of the
+poles' as hard steps (geometry, not foliage), and the trunks as long pale tubes with 9% fine texture. And a
+dark AO ring round a wall sign, recorded under #138.
+
 #### #145 (as filed)
 - **Leaf edges are binary.** "86% of leaf/sky boundary pixels have no partial coverage" (corridor noon
   [640,240,760,320]) and "78%" (fivepoints noon [600,330,760,420]); "only 3.8% of 5,983 leaf/sky edge
@@ -6734,3 +6802,73 @@ checks, physics-test 22 -> 26; the 51-gate offline list green.
 A parked car on perfectly flat ground creeps 4.9 mm/s with no input, 0.546 m in 115 s at every yaw,
 because the tyres resist motion only viscously and have no static friction. In the district at the
 corridor camera's focus it crept 3.8 mm/s, and the sun's shadow box follows that focus.
+
+### #147 OPEN — what #145's blind reviewer found wrong in BOTH arms: torn trunk silhouettes, a leaf card's outline against the sky, hard geometry edges
+
+From #145's blind review (2026-11-18), present in the preferred build as well as the rejected one, corridor and
+fivepoints at noon, golden and dusk. Coordinates are the 1600x900 hero frames; nothing here is diagnosed.
+
+- **The trunk's silhouette is torn even with #145's rim.** The corridor's base-left trunk, rows 545-649 at noon:
+  its right edge moves between columns 41 and 56, jumping 3 px or more between adjacent rows 12 times in 101
+  (max 9 px). A notch on the right-hand upper trunk at about (1472-1482, 190-210) is byte-identical in both
+  arms: square bites about 9 px deep, visible at 1:1, the red pilaster behind showing through. #145 took the
+  lattice INSIDE the trunk from 22.3% uncovered to 0.1% (`leaf-cover`); the bark fringe's cut at the
+  silhouette, where #145's rim does not reach (faces at a grazing angle to the camera), is what is left.
+- **A leaf card reads as its quad.** Top-left of the corridor: one large flat card's lower-right boundary over
+  columns 215-300 fits a single straight line at -27.1 to -27.2 degrees in all four arms tested, residuals
+  2.1-2.8 px RMS. Edge-on cards also draw as 1 px dark strokes just under it.
+- **Geometry edges are as hard as the leaves were.** 70.4% of a car roof's edges at corridor noon
+  [150,590,480,630] are steps with no intermediate pixel (43.1% golden, 9.2% dusk), and 78.5-87.2% of the
+  poles' against the sky at fivepoints [0,160,160,300] + [990,220,1040,300]; identical in both arms, so it is
+  the resolve and not the foliage. #145 left FXAA over the MSAA unmeasured; this is the measurement it would be
+  priced against.
+- **The trunks and limbs are long, straight, pale tubes.** The left limb crosses about 470 px of frame as one
+  cylinder; the right upper trunk [1452,5,1474,60] has about 9% fine texture (high-pass RMS over mean, linear)
+  and no bark structure. The reviewer had no reference photograph and recorded it as an observation; #145
+  measured one photographed trunk at x0.49 of the sunlit road beside it against the shipped limb's x0.94, and
+  did not move the tone on one sample.
+
+### #148 FIXED — 23 street lamps had their pavement-side globe in a building; the fivepoints "lamp inside a building" that prompted the census is a specular glint
+
+**The report is not a lamp.** Rebuilding the fivepoints hero camera offline exactly as `placeHeroCam` does
+(it lands at (31.45, -156.82) against the capture log's (31.5, -156.8)) and projecting every placed lamp
+head: none lands within 130 px of the glow at (1124..1158, 260..286); the nearest heads are at (991, 274)
+and (1447, 329). A ray through the glow hits building 401's wall at z -151.83, 6.2-6.6 m up and 17 m out,
+5.6-6.8 m from the head of the lamp at (53.4, -153.3), and the camera sits within 2.7 degrees of that lamp's
+mirror direction off the wall, both rays at grazing incidence (76 and 73 degrees off the wall's normal). #142's builder
+had measured the same pixel at 4,184 nits with the LightPool on and 202 with it off. So it is the lamp's
+specular lobe on a facade at grazing incidence; whether that wall's material should return a lobe that
+bright is a material question and is not settled here.
+
+**But the census the report prompted found real ones.** The fixture carries two globes (LAMP_GLOBES): the
+arm's own, 2.2 m out over the carriageway, and a pavement-side one 1.0 m BEHIND the post. The station
+search refused a post that would stand in a building and never asked about the globes. Counted in 3-D —
+each globe a sphere at its own height, in a wall when it is nearer a footprint than its radius and the
+building rises past the sphere's bottom (the median building is 6.4 m, and a globe at 7.7 m over a lower
+roof is not in it):
+
+    globe                       in a wall    centre inside    wholly buried     of
+    the arm's (2.2 m out)           1             0                 0          1,228
+    pavement side (1.0 m back)     23            14                 9          1,228
+    after the fix                   0             0                 0          1,222
+
+The 2-D test without heights reads 22 centres inside for the pavement globe and one for the arm's, the
+latter over a building lower than the globe, which is why the height is part of the rule. The search now
+skips a candidate spot whose either globe would be in a wall, exactly as it skips one whose post would:
+1,222 lamps (18 stations refused against 11, 6 fewer lamps), the street lit on both sides 84.9% against
+85.2%, 39 edges lit on one side only against 36. `kerb-stand` counts it with its own predicate
+(`globesInWalls`, written from the footprints rather than through the placer's `buildingClearance`), 29 -> 30
+checks, the selftest 11 -> 16 with a buried globe, one nearer the wall than its radius, a clear one, the
+arm's own and a roof under the globe. Row `lamp-globe-walls`; `lamp-yaw-along` repointed, because the
+first cut computed the yaw twice and `mutation-sweep --selftest` caught the row matching both.
+
+Not done: facade protrusions (cornices, sills, signage) are not in the footprint, so a globe can still
+stand in front of one; nothing measured how close the nearest is.
+
+#### #148 (as filed, from #142's blind reviewer, 2026-11-18)
+
+"A lamp sits inside a building (fivepoints). At night a 704 px fully white glow at (1124..1158, 260..286),
+the second-largest in the frame, straddles the corner of the brick building. At dusk neither arm shows a
+globe there: A reads (133,100,99), which is wall and facade, whereas the frame's real globes read about
+(159..194, 115..149, 90..117). This is the source of B's dusk hotspot. Of the 13 lamps in this frame, it is
+the one with no visible head."
