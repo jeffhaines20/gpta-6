@@ -254,6 +254,19 @@ const OFFLINE = [
   // list renders a car under the district's own sky, and `arch-bevel-on` passes every buffer check.
   'car-arch',
   'car-arch --selftest',
+  // #36's page, about 7 s on a loaded box: one wall per glazed recipe through the REAL facade material
+  // into a float target. The room behind the glass is a ray cast in that material's fragment shader and
+  // its mirror lever a line after three's lights_physical_fragment, and nothing else on this list
+  // compiles a facade's shader at all: every glass row below is invisible to the rest of it. Its off
+  // arm is asserted against a replica of the pre-#36 material bit for bit, whole frame.
+  'glass-room',
+  'glass-room --selftest',
+  // Under a second each: the instruments #36's numbers rest on. glass-sweep reads a lever surface off
+  // an arms capture (its selftest is the synthesis on arrays whose answer is known); glaz-probe carries
+  // the flat-fill metric (paneStructure) with known-bad cases; pane-tint is the photograph detector.
+  'glass-sweep --selftest',
+  'glaz-probe --selftest',
+  'pane-tint --selftest',
 ];
 
 /**
@@ -3678,6 +3691,57 @@ const MUTATIONS = [
     to: '  for (const head of lamps.heads) lightPool.addEmitter(head.x, head.y, head.z, 1800, LAMP_LIGHT_COLOR, LAMP_REACH);',
     why: 'the page types its own candela again: a light twice what the globe in front of it was derived from',
     browser: true,
+  },
+  // ---- #36: the room behind the facade glass and the mirror's strength (src/materials.js applyGlassRoom,
+  // src/facades.js glassRoomGeometry). Every one is a facade-shader or room-geometry defect that leaves
+  // the frame plausible, and glass-room is the only gate on this list that compiles a facade shader.
+  {
+    id: 'glass-room-leak', file: 'src/materials.js',
+    find: '  float gi = uGlassRoom * ${mask} * ( 1.0 - smoothstep( 0.55, 0.85, abs( grN.y ) ) );',
+    to: '  float gi = uGlassRoom * ( 1.0 - smoothstep( 0.55, 0.85, abs( grN.y ) ) );',
+    why: 'the glass mask dropped: every wall texel of every facade replaced by a room, the masonry turned to windows',
+  },
+  {
+    id: 'glass-room-default-off', file: 'src/materials.js',
+    find: '  uGlassRoom: { value: 1 },',
+    to: '  uGlassRoom: { value: 0 },',
+    why: 'the fix quietly shipped off: every check that sets the lever itself still passes, so only "ships #36 ON" sees it',
+  },
+  {
+    id: 'glass-room-unlit', file: 'src/materials.js',
+    find: '    vec3 grEin = iblIrradiance + irradiance + grEdir;',
+    to: '    vec3 grEin = vec3( 3.0 );',
+    why: 'a room with its own light: plausible by day, and every window in the district glowing a lit room over the emissive at night',
+  },
+  {
+    id: 'glass-room-world-height', file: 'src/materials.js',
+    find: '    float vP = vMapUv.y * uGlassRoomGeo.w;',
+    to: '    float vP = grWorld.y;',
+    why: 'the room off world height instead of the texture: right on a building standing at y 0, a slab across the window on any other',
+  },
+  {
+    id: 'glass-room-flat', file: 'src/materials.js',
+    find: '    vec3 grRoom = alb * grEin * ( uGlassRoomK * exp( - depth / 2.4 ) ) * RECIPROCAL_PI;',
+    to: '    vec3 grRoom = vec3( 0.5 ) * grEin * uGlassRoomK * RECIPROCAL_PI;',
+    why: 'the ray cast replaced by one grey: every window a flat fill again, which still varies inside a pane by the coating gradient it is tinted with',
+  },
+  {
+    id: 'glass-room-tint-grey', file: 'src/materials.js',
+    find: '    vec3 grTint = clamp( diffuseColor.rgb / 0.25, 0.0, 1.5 );',
+    to: '    vec3 grTint = vec3( 1.0 );',
+    why: 'the glass transmits grey: every recipe\'s room the same colour, and bayTower\'s deliberately cool glazing warm',
+  },
+  {
+    id: 'glass-room-one-geometry', file: 'src/facades.js',
+    find: '    const g = glassRoomGeometry(m.recipe);',
+    to: '    const g = glassRoomGeometry(RECIPES.retailStrip);',
+    why: 'every recipe given the retail strip\'s floors: a tower\'s rooms 3.9 m tall behind 3.15 m windows',
+  },
+  {
+    id: 'glass-room-ceiling-in-pane', file: 'src/facades.js',
+    find: '    ceiling: Math.min(head + 0.12, fm - 0.02),',
+    to: '    ceiling: Math.min(head - 0.6, fm - 0.02),',
+    why: 'the ceiling hung 0.6 m below the window head: a slab across the top of every pane',
   },
 ];
 

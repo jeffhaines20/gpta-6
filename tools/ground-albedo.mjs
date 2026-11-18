@@ -533,6 +533,14 @@ export const ARM_STATE = {
 
   // #119's halo0 arm was here: it removed the lit lamps' lens halos, a blind reviewer preferred it in
   // both pairs where a lit car was in frame, and the halos went out of src/carbody.js with the switch.
+
+  // #36, THE ROOM BEHIND THE FACADE GLASS (src/materials.js applyGlassRoom). `facadeGlass` is
+  // { room, mirror, rough, k }, pushed through __district.setFacadeGlass. glass0 is the build before
+  // #36 bit for bit (tools/glass-room.mjs asserts it against a replica of the old material, whole
+  // frame, max |d| 0); glass1 is the shipped levers, NAMED rather than left to the default, so a
+  // reader of the pair does not have to know which way round the build falls.
+  glass0: { albedo: null, skyProxy: false, nightGlowLux: 0, facadeGlass: { room: 0, mirror: 1, rough: 1, k: 0.15 } },
+  glass1: { albedo: null, skyProxy: false, nightGlowLux: 0, facadeGlass: { room: 1, mirror: 0.4, rough: 1, k: 0.15 } },
 };
 
 /**
@@ -776,6 +784,14 @@ export async function setArm(page, name) {
       // the comment above warns about.
       carTone = D.setCarTone(s.carTone === true);
     }
+    // #36's facade glass, saved and restored off the APP like every term above: an arm that does not
+    // name it gets the build's own levers, not the previous arm's.
+    let facadeGlass = null;
+    if (D && D.setFacadeGlass) {
+      if (window.__armSavedFacadeGlass === undefined) window.__armSavedFacadeGlass = D.facadeGlass();
+      const fg = s.facadeGlass ?? window.__armSavedFacadeGlass;
+      facadeGlass = D.setFacadeGlass({ room: fg.room, mirror: fg.mirror, rough: fg.rough, k: fg.k });
+    }
     let carFinish = null;
     if (D && D.setCarLensFinish) {
       const fin = s.carFinish ?? [sv.finish.roughness, sv.finish.metalness];
@@ -859,6 +875,9 @@ export async function setArm(page, name) {
       // post stack's own params, which is what its render() pushes into the bright pass.
       bloomLit: (window.__district && window.__district.postParams)
         ? (window.__district.postParams().bloomThresholdLit ?? 0) : null,
+      // IN THE KEY: glass0 and glass1 differ in nothing else. Fourteenth time. Read back off the
+      // shared uniforms the facade materials hold, which is what the shader reads.
+      facadeGlass: facadeGlass ? [facadeGlass.room, facadeGlass.mirror, facadeGlass.rough, facadeGlass.k] : null,
       carTone: carTone ? [carTone.traffic ? +carTone.traffic.span.toFixed(3) : null,
         carTone.parked ? +carTone.parked.span.toFixed(3) : null] : null,
       carShells: (window.__district && window.__district.carShells)
@@ -900,7 +919,7 @@ export async function proveArmsDiffer(page, arms) {
   // a hash.
   const EXACT = ['albedo', 'skyIlluminance', 'msWhitenAnti', 'ao', 'carLens', 'carProfile', 'carGlass',
     'carFront', 'carTyre', 'carFinish', 'carHub', 'carAlbedo', 'carGlassAlbedo', 'carGlassEnv', 'carShells',
-    'carPaintTint', 'aoKernel', 'aoEmit', 'carCabin', 'carPlate', 'carLamp', 'bloomLit'];
+    'carPaintTint', 'aoKernel', 'aoEmit', 'carCabin', 'carPlate', 'carLamp', 'bloomLit', 'facadeGlass'];
   const toneClass = (t) => (Array.isArray(t) ? t.map((v) => (v === null ? null : v > 5 ? 'census' : 'legacy')) : t);
   const near = (a, b) => (Number.isFinite(a) && Number.isFinite(b)
     ? Math.abs(a - b) <= 0.05 * Math.max(Math.abs(a), Math.abs(b), 1e-9) : a === b);

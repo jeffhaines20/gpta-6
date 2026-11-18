@@ -25,7 +25,11 @@
 //   registered to the facade   the room's light does not move when the wall AND the camera move
 //                         up 7.3 m: it hangs off the texture's floor bands, not world height
 //   a room, not a fill    inside each pane the room's own light varies (p90/p10), and it varies
-//                         from pane to pane; and the recipes keep their tints through the glass
+//                         from pane to pane - both measured over the ALBEDO the shader read, because
+//                         the light leaves through a transmission tinted by it and the painted
+//                         coating alone runs 2.3x head to cill: a flat grey room seen through that
+//                         gradient passes the undivided version of this check. And the recipes keep
+//                         their tints through the glass.
 //   one program           every recipe shares one compiled program - which is WHY the per-recipe
 //                         room is uniforms - and each material holds its own recipe's numbers
 import { chromium } from 'playwright';
@@ -119,10 +123,10 @@ export function verdict(r, recipeTable = RECIPES) {
   add('REGISTERED TO THE FACADE, NOT THE WORLD: the room\'s light is unchanged with the wall and camera 7.3 m up',
     each((n, s) => num(s.upRoomMaxRel) !== null && s.upRoomMaxRel < 1e-2).every(Boolean),
     list((n, s) => `max rel ${num(s.upRoomMaxRel)?.toExponential(2) ?? '?'}`));
-  add('A ROOM, NOT A FILL: inside each pane the room\'s light spans p90/p10 >= 1.5 (median over panes)',
+  add('A ROOM, NOT A FILL: inside each pane the room\'s light over the albedo it is tinted by spans p90/p10 >= 1.5 (median over panes)',
     each((n, s) => (num(s.roomModMedian) ?? 0) >= 1.5 && (num(s.panes) ?? 0) >= 3).every(Boolean),
     list((n, s) => `${num(s.roomModMedian)?.toFixed(2) ?? '?'} over ${s.panes ?? '?'} panes`));
-  add('and rooms differ from pane to pane (cv of their means >= 0.1)',
+  add('and rooms differ from pane to pane (cv of their albedo-divided means >= 0.1)',
     each((n, s) => (num(s.roomPaneCV) ?? 0) >= 0.1).every(Boolean), list((n, s) => `${num(s.roomPaneCV)?.toFixed(3) ?? '?'}`));
   const br = (n) => num(S(n).roomBR);
   add('the recipes keep their tints THROUGH the glass: bayTower\'s room reads at least 1.3x bluer than midOffice\'s',

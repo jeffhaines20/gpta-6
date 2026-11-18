@@ -168,6 +168,15 @@ try {
       cls[i] = (g < 96 && b > 100) ? 1 : (g >= 114 || b <= 85) ? 2 : 3;
     }
 
+    // The ALBEDO the shader read at each pixel - the map, decoded to linear, through the same filter.
+    // The room's light leaves through a transmission tinted by exactly this, and the painted coating
+    // runs 2.3x from a pane's head to its cill, so "the room's light varies inside a pane" would hold
+    // for a flat grey room seen through that gradient. Divided out below, so the structure measured
+    // is the room's own: a mutation that flattens the room to one colour reads 1.0 here.
+    const albMat = new THREE.MeshBasicMaterial({ map: facadeMaps(name).map, toneMapped: false });
+    const albedo = render(wallFor(name, albMat, 0));
+    albMat.dispose();
+
     const wall = wallFor(name, mat, 0);
     aimAt(0, wall);
     setGlassRoom({ room: SHIP.room, mirror: SHIP.mirror, rough: SHIP.rough, k: SHIP.k });
@@ -195,7 +204,7 @@ try {
     const st = { offVsPreMax: 0, offVsPreDiffer: 0, shipWallMax: 0, shipWallDiffer: 0, glassChanged: 0,
       mirrorWallMax: 0, mirrorGlassDrop: 0, darkGlassMax: 0, darkGlassFinite: true,
       upRoomMaxRel: 0, roomSum: [0, 0, 0], roomLumMean: 0, nonFinite: 0 };
-    const roomLum = new Float64Array(W * H).fill(NaN);
+    const roomLum = new Float64Array(W * H).fill(NaN), roomRel = new Float64Array(W * H).fill(NaN);
     let roomN = 0, mirGlass = 0, offGlass = 0;
     for (let i = 0; i < W * H; i++) {
       for (let c = 0; c < 4; c++) {
@@ -225,6 +234,7 @@ try {
         const l = 0.2126 * rr[0] + 0.7152 * rr[1] + 0.0722 * rr[2];
         const lu = 0.2126 * ru[0] + 0.7152 * ru[1] + 0.0722 * ru[2];
         roomLum[i] = l; roomN++;
+        roomRel[i] = l / Math.max(Y(albedo, i), 1e-4);
         st.upRoomMaxAbs = Math.max(st.upRoomMaxAbs ?? 0, Math.abs(l - lu));
       }
     }
@@ -235,14 +245,15 @@ try {
     // 1e-3 on a build where nothing moved; a room hung off world height moves by its own size.
     st.upRoomMaxRel = st.roomLumMean > 0 ? (st.upRoomMaxAbs ?? 0) / st.roomLumMean : null;
     st.roomBR = st.roomSum[0] > 0 ? st.roomSum[2] / st.roomSum[0] : null;
-    // Is each pane's room a flat fill? 4-connected glass components, p90/p10 of the room's light.
+    // Is each pane's room a flat fill? 4-connected glass components, p90/p10 of the room's light OVER
+    // THE ALBEDO it was tinted by, and the spread of that across panes.
     const seen = new Uint8Array(W * H), stack = new Int32Array(W * H);
     const mods = [], means = [];
     for (let s0 = 0; s0 < W * H; s0++) {
       if (seen[s0] || cls[s0] !== 1) continue;
       let sp = 0; stack[sp++] = s0; seen[s0] = 1; const vals = [];
       while (sp) {
-        const p = stack[--sp]; if (Number.isFinite(roomLum[p])) vals.push(roomLum[p]);
+        const p = stack[--sp]; if (Number.isFinite(roomRel[p])) vals.push(roomRel[p]);
         const x = p % W;
         for (const nb of [x > 0 ? p - 1 : -1, x < W - 1 ? p + 1 : -1, p - W, p + W]) {
           if (nb >= 0 && nb < W * H && !seen[nb] && cls[nb] === 1) { seen[nb] = 1; stack[sp++] = nb; }
