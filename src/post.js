@@ -97,6 +97,26 @@ export function tagEmissionInAlpha(chunks = THREE.ShaderChunk) {
 // life of its cached program.
 tagEmissionInAlpha();
 
+/**
+ * #145: A COVERED LEAF'S OWN TAG, and the one positive value the scene target's alpha carries on purpose.
+ *
+ * src/streetfurniture.js draws the stencil's cut zones with alpha to coverage, and there the alpha IS the
+ * sample mask: the negative tag above would clamp to a mask of nothing, and three makes a coverage
+ * material non-OPAQUE so the tag is never written for it. Untagged, a leaf is judged against the
+ * EMITTER's bloom bar at dusk and night, and #145's district probe measured what that costs: at corridor
+ * night 13,588 leaf pixels over the emitter's 0.118 that the lit bar's 1.331 had held (worst 13.39
+ * exposed, a leaf beside a lamp), 18 at dusk; the #118 defect, on the trees.
+ *
+ * So a coverage fragment that is FULLY covered (alpha >= 1, which the mask clamps to every sample) writes
+ * this instead, and the bright pass reads it as lit, share 0. A partially covered one cannot carry it
+ * and stays untagged: its alpha is its coverage. The value is ONE number with the bright pass's own 0.01
+ * band, so neither blend can carry another pixel into it: normal blending pulls 4 toward s and leaves the
+ * band at s >= 0.0034, additive pushes it up and leaves at s >= 0.01, and reaching it from the clear's 1
+ * takes three stacked additive layers summing to exactly 3. 4 is exact in half float, as -1 is. The
+ * composite needs nothing: -4 - 1 is outside [0, 1], so the AO applies to a leaf as it always did.
+ */
+export const COVERAGE_LIT_TAG = 4.0;
+
 /** The composite's decode of the tag above, in JS, so a gate can assert the two agree. */
 export function emitShareFromAlpha(a) {
   const tag = -a - 1;
@@ -157,7 +177,8 @@ vec3 brightClean(vec3 c) {
 // half-covered MSAA edge (alpha 0, a mean of -1 and +1) is still untagged, as it should be.
 vec3 brightSplit(vec4 s) {
   vec3 c = brightClean(s.rgb);
-  float share = -s.a - 1.0;
+  // #145: a fully covered leaf (COVERAGE_LIT_TAG) is lit and emits nothing.
+  float share = abs( s.a - ${COVERAGE_LIT_TAG.toFixed(1)} ) <= 0.01 ? 0.0 : -s.a - 1.0;
   if (!(share >= -0.01 && share <= 1.01)) return c * brightContrib(dot(c, BRIGHT_LUMA) * exposure, threshold);
   share = clamp(share, 0.0, 1.0);
   vec3 ce = c * share, cl = c - ce;

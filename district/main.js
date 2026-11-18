@@ -331,6 +331,9 @@ const lightPool = new LightPool(scene, { size: 10, maxDistance: 130 });
     audit: true,
     kerbFace,
     shopFrontage: !_q.has('nofrontage'),
+    // #145: `?foliage=test` draws the stencil's cut zones with the alpha test, as before #145, so a
+    // capture of one build can carry both arms (src/streetfurniture.js COVERAGE_MODES).
+    ...(_q.has('foliage') ? { foliageCoverage: _q.get('foliage') } : {}),
     ...(_q.has('shadowreach') ? { shadowReach: Number(_q.get('shadowreach')) } : {}),
   });
   furnitureProps = furniture.placed ?? null;

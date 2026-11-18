@@ -235,6 +235,77 @@ check('reverse still has authority off the mark', (() => {
 }
 
 /**
+ * 7b. A PARKED CAR STAYS PARKED (src/vehicle.js, REST_HOLD_MS). The tyres resist motion viscously and
+ *     have no static friction, so whatever force is left over at rest became a steady crawl: 4.9 mm/s,
+ *     0.546 m over 115 s at every heading, with a yaw drift of -3.8e-5 rad/s. The sun's shadow box
+ *     follows the car, so a still scene re-rasterised its shadows as the car crept (BACKLOG #124). The
+ *     hold clears the planar velocity and the yaw rate once the car is under 2 cm/s with no throttle
+ *     and every wheel down, so the arms are: parked with and without it, and the two things it must
+ *     not do — hold a car the player is driving off, or brake one that is still rolling.
+ */
+{
+  const yawOf = (q) => Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y ** 2 + q.x ** 2));
+  const park = (hold, yaw, seconds) => {
+    const v = new Vehicle();
+    if (!hold) v.restHoldMs = 0;
+    v.position.set(0, 0.55, 0);
+    v.quaternion.setFromAxisAngle({ x: 0, y: 1, z: 0 }, yaw);
+    // The spawn bounce first: two seconds, which is how long the suspension takes to come to rest.
+    for (let i = 0; i < 2 / DT; i++) { v.setControls({ throttle: 0, brake: 0, steer: 0 }); v.step(DT, ground); }
+    const p0 = v.position.clone(), y0 = yawOf(v.quaternion);
+    for (let i = 0; i < Math.round(seconds / DT); i++) {
+      v.setControls({ throttle: 0, brake: 0, steer: 0 });
+      v.step(DT, ground);
+    }
+    return { moved: Math.hypot(v.position.x - p0.x, v.position.z - p0.z),
+      turned: Math.abs(yawOf(v.quaternion) - y0), held: v.restHeld, v };
+  };
+  const HEADINGS = [0, 0.7, 2.1, 4.0];
+  const on = HEADINGS.map((y) => park(true, y, 115)), off = HEADINGS.map((y) => park(false, y, 115));
+  const worstOn = Math.max(...on.map((r) => r.moved)), leastOff = Math.min(...off.map((r) => r.moved));
+  out.restHold = { movedHeld_m: +worstOn.toExponential(3), movedCrawl_m: +leastOff.toFixed(4),
+    turnedCrawl_rad: +Math.max(...off.map((r) => r.turned)).toExponential(2) };
+  check('KNOWN-BAD: without the rest hold a parked car crawls, at every heading',
+    leastOff > 0.3, `${leastOff.toFixed(3)} m in 115 s at the least, ` +
+    `${off.map((r) => r.moved.toFixed(3)).join(' / ')}`);
+  // Turned is a bound rather than a zero: the hold leaves the suspension's pitch and roll alone, and
+  // the yaw read back off a quaternion that keeps integrating them moves by a few 1e-13.
+  const turnedOn = Math.max(...on.map((r) => r.turned)), turnedOff = Math.max(...off.map((r) => r.turned));
+  check('with it a parked car does not move at all, and it is the hold that held it',
+    worstOn === 0 && turnedOn < 1e-9 && on.every((r) => r.held > 0),
+    `worst ${worstOn} m and ${turnedOn.toExponential(1)} rad against the crawl's ` +
+    `${turnedOff.toExponential(2)} rad, held ${on.map((r) => r.held).join('/')} steps of ${Math.round(117 / DT)}`);
+  // Throttle releases it: from the held state, two seconds of full throttle is a car pulling away.
+  const pullAway = (v) => {
+    for (let i = 0; i < 2 / DT; i++) { v.setControls({ throttle: 1, brake: 0, steer: 0 }); v.step(DT, ground); }
+    return v.roadSpeed;
+  };
+  const goHeld = pullAway(on[0].v), goFree = pullAway(off[0].v);
+  check('throttle releases the hold: a held car pulls away as one that was never held does',
+    goHeld > 3 && Math.abs(goHeld - goFree) < 0.01 * goFree,
+    `${goHeld.toFixed(3)} m/s after 2 s from held, ${goFree.toFixed(3)} from the crawl`);
+  // And it is not a brake: a car rolling at walking pace with no input coasts as it did without it.
+  const roll = (hold) => {
+    const v = new Vehicle();
+    if (!hold) v.restHoldMs = 0;
+    v.position.set(0, 0.55, 0);
+    for (let i = 0; i < 2 / DT; i++) { v.setControls({ throttle: 0, brake: 0, steer: 0 }); v.step(DT, ground); }
+    // From the car's own position when it is set rolling: the settle above is two seconds the
+    // crawling car spends creeping, and an absolute z would compare that rather than the coast.
+    v.velocity.set(0, v.velocity.y, 1.5);
+    const z0 = v.position.z, held0 = v.restHeld;
+    let t = 0;
+    while (v.roadSpeed > 0.05 && t < 60) { v.setControls({ throttle: 0, brake: 0, steer: 0 }); v.step(DT, ground); t += DT; }
+    return { t, dz: v.position.z - z0, heldDuring: v.restHeld - held0 };
+  };
+  const rolledOn = roll(true), rolledOff = roll(false);
+  check('and it is not a brake: a car rolling at 1.5 m/s coasts down as it does without it',
+    rolledOn.t === rolledOff.t && Math.abs(rolledOn.dz - rolledOff.dz) < 1e-3 && rolledOn.heldDuring === 0,
+    `${rolledOn.t.toFixed(3)} s and ${rolledOn.dz.toFixed(4)} m against ${rolledOff.t.toFixed(3)} s and ` +
+    `${rolledOff.dz.toFixed(4)} m, held on ${rolledOn.heldDuring} of its steps`);
+}
+
+/**
  * 4b. THE DAMAGE STEER PULL IS A QUARTER OF THE AUTHORITY THE PLAYER HAS, at every speed.
  *
  * src/damage.js caps `steerPull` at 0.25 "of the vehicle's steering authority so it is a handicap,

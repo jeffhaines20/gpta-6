@@ -1,4 +1,6 @@
-node_modules/
+# No trailing slash: `node_modules/` matches a directory and not a SYMLINK, and the harness links
+# node_modules -> /opt/node-tools/node_modules on a fresh machine, which then showed as untracked.
+node_modules
 # package-lock.json is deliberately NOT ignored. It was, until 2026-08-30, from
 # back when this repo declared no dependencies at all. Once CI existed that made
 # actions/setup-node's npm cache fail instantly with nothing to hash, and would

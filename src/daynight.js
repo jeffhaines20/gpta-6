@@ -1718,6 +1718,17 @@ export class TimeOfDay {
   /**
    * Where the shadow box centres for a viewer at `pos`: `pos` moved by under half a texel along each
    * of the box's two lateral axes, onto the box's own texel grid. See the note above the class.
+   *
+   * AND ALONG THE LIGHT TOO, at the same pitch (BACKLOG #124). This axis was left exact on the
+   * argument that moving the shadow camera along its own view direction shifts every depth by the
+   * same amount and so changes nothing. In exact arithmetic it does not; on the GPU the shadow
+   * matrix is float32, and a new depth offset is a new set of roundings for every texel that
+   * compares a surface with itself or with a caster it touches. Measured at the corridor camera at
+   * noon, with the focus a parked car crawling 5.9 mm over 31 frames: 57 pixels of a 480 x 130 clip
+   * along the cornice's contact edge moved 1-6 levels as shipped, and 0 with this axis snapped,
+   * same page, same crawl. With the focus still (on foot) the clip was byte-identical either way, so
+   * the depth axis is the whole of it. The box's depth range is 900 m, so half a texel of offset
+   * along the light is nothing to its coverage.
    */
   shadowCentre(pos, out = new THREE.Vector3()) {
     const d = this.sunDirection(_sunDirScratch);
@@ -1730,8 +1741,11 @@ export class TimeOfDay {
     const texel = (cam.right - cam.left) / this.sun.shadow.mapSize.x;
     const a = pos.x * _sunAxisX.x + pos.y * _sunAxisX.y + pos.z * _sunAxisX.z;
     const b = pos.x * _sunAxisY.x + pos.y * _sunAxisY.y + pos.z * _sunAxisY.z;
+    const t = pos.x * d.x + pos.y * d.y + pos.z * d.z;
     const da = Math.round(a / texel) * texel - a, db = Math.round(b / texel) * texel - b;
-    return out.set(pos.x, pos.y, pos.z).addScaledVector(_sunAxisX, da).addScaledVector(_sunAxisY, db);
+    const dt = Math.round(t / texel) * texel - t;
+    return out.set(pos.x, pos.y, pos.z).addScaledVector(_sunAxisX, da).addScaledVector(_sunAxisY, db)
+      .addScaledVector(d, dt);
   }
 
   follow(pos) {

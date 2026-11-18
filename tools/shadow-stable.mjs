@@ -20,7 +20,12 @@
 //   direction  the light's direction is the preset's, whatever the viewer's height: it took the sun's
 //              height as an absolute while the target took the car's y, so a 20 cm kerb tilted every
 //              shadow in the frame
-//   centred    the box stays on the viewer, within half a texel on each lateral axis
+//   centred    the box stays on the viewer, within half a texel on each lateral axis, and since
+//              #124 within half a texel ALONG the light too: that axis is snapped at the same pitch
+//   drift      a viewer creeping along the light a millimetre a step does not move the box. It was
+//              left exact on the argument that a depth shift changes nothing, and on the GPU's float32
+//              shadow matrix it re-rounds every contact edge: a parked car crawling 5.9 mm moved 57
+//              pixels of the corridor's cornice edge 1-6 levels as shipped, and 0 snapped
 //   post       the post stack's sun direction is the preset's too, after a follow AND after a weather
 //              change: _applyPost normalised the light's POSITION, which after follow() is the viewer
 //              plus 400 m toward the sun, so it pointed from the world origin
@@ -37,7 +42,7 @@ for (const a of argv) {
 }
 
 /** Fixed, so a check cannot vanish when a population is empty (CLAUDE.md, car-pixel). */
-export const CHECK_COUNT = 7;
+export const CHECK_COUNT = 8;
 
 /** A TimeOfDay with a renderer that only has to accept the tone-mapping writes apply() makes. */
 export function makeTod() {
@@ -117,8 +122,18 @@ export function measure(tod) {
       tod.setWeather({});
       postDev = Math.max(postDev, postDir());
     }
+    // THE DRIFT: a viewer creeping ALONG THE LIGHT, a millimetre a step for 40 mm, which is under half
+    // a texel, from a parked car's own position. Snapped, the box can cross at most one step boundary
+    // in that; left exact, it moves on every step.
+    let driftMoves = 0, driftN = 0, lastSun = null;
+    for (let k = 0; k <= 40; k++) {
+      tod.follow({ x: 57.46 + want.x * k * 0.001, y: 0.717 + want.y * k * 0.001, z: -163.82 + want.z * k * 0.001 });
+      const sp = tod.sun.position.clone();
+      if (lastSun) { driftN++; if (sp.distanceTo(lastSun) > 1e-9) driftMoves++; }
+      lastSun = sp;
+    }
     out.presets[name] = { n, phaseDev, dirDevDeg: dirDev * 180 / Math.PI, offMaxTexels: offMax, alongMax, moves,
-      wholeMoves, postDevDeg: postDev };
+      wholeMoves, postDevDeg: postDev, driftMoves, driftN };
   }
   return out;
 }
@@ -146,8 +161,15 @@ export function verdict(m) {
   const worstOff = Math.max(...P.map(([, r]) => num(r.offMaxTexels) ?? Infinity));
   add('the box stays on the viewer: within half a texel on each lateral axis', worstOff <= Math.SQRT1_2 + 1e-9,
     `worst ${worstOff.toFixed(4)} texel of ${m.texel} m`);
+  // RESTATED for #124: this read "and is not moved along the light at all", worstAlong < 1e-9, which was
+  // the old design. Along the light the box is snapped at the texel's pitch now, so it sits within half
+  // a texel of the viewer on that axis exactly as it does on the other two.
   const worstAlong = Math.max(...P.map(([, r]) => num(r.alongMax) ?? Infinity));
-  add('and is not moved along the light at all', worstAlong < 1e-9, `worst ${worstAlong.toExponential(2)} m`);
+  add('and within half a texel of the viewer along the light', worstAlong <= m.texel / 2 + 1e-9,
+    `worst ${worstAlong.toExponential(2)} m against ${(m.texel / 2).toExponential(2)}`);
+  add('a viewer creeping along the light does not move the box: at most one step in 40 mm of 1 mm creeps',
+    P.length >= 4 && P.every(([, r]) => num(r.driftN) >= 40 && num(r.driftMoves) !== null && r.driftMoves <= 1),
+    P.map(([k, r]) => `${k} ${r.driftMoves}/${r.driftN}`).join(', '));
   const worstPost = Math.max(...P.map(([, r]) => num(r.postDevDeg) ?? Infinity));
   add('the post stack\'s sun direction is the preset\'s too, after a follow and after a weather change',
     worstPost < 1e-6, P.map(([k, r]) => `${k} ${r.postDevDeg?.toExponential(2)}`).join(', ') + ' deg');
@@ -201,6 +223,23 @@ if (IS_MAIN && argv.includes('--selftest')) {
   origin._applyPost = function () { applied(); this.post.params.sunDirection.copy(this.sun.position).normalize(); };
   r = failsOn(origin, 'post stack');
   say(r.hit, 'KNOWN-BAD: the post\'s sun direction taken from the light\'s position fails', r.failing.join(' | '));
+  // KNOWN-BAD 5b: the shadowCentre this round replaced, verbatim: snapped across the light and exact
+  // along it. A creeping viewer moves the box on every step, which is #124's cornice shimmer.
+  const exactAlong = makeTod();
+  exactAlong.shadowCentre = function (pos, out) {
+    const d = this.sunDirection(new THREE.Vector3());
+    const c = Math.hypot(d.x, d.z);
+    const X = c > 1e-6 ? new THREE.Vector3(d.z / c, 0, -d.x / c) : new THREE.Vector3(1, 0, 0);
+    const Y = new THREE.Vector3().crossVectors(d, X);
+    const cam = this.sun.shadow.camera, texel = (cam.right - cam.left) / this.sun.shadow.mapSize.x;
+    const a = pos.x * X.x + pos.y * X.y + pos.z * X.z, b = pos.x * Y.x + pos.y * Y.y + pos.z * Y.z;
+    return out.set(pos.x, pos.y, pos.z).addScaledVector(X, Math.round(a / texel) * texel - a)
+      .addScaledVector(Y, Math.round(b / texel) * texel - b);
+  };
+  r = failsOn(exactAlong, 'creeping along the light');
+  say(r.hit, 'KNOWN-BAD: the box exact along the light moves under a millimetre creep', r.failing.join(' | '));
+  r = failsOn(exactAlong, 'sub-texel phase');
+  say(!r.hit, 'and it still passes the phase check, so the drift check is the only thing that sees it', r.failing.join(' | '));
   // KNOWN-BAD 5: an empty measurement cannot pass.
   const empty = verdict({ texel: 0.117, presets: {} });
   say(empty.length === CHECK_COUNT && empty.filter((c) => !c.ok).length >= 1,

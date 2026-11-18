@@ -1,0 +1,258 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>car-lamp</title>
+<!--
+  A CAR'S HEADLAMPS BY DAY, FROM THE FRONT, UNDER THE REAL LIGHT (#143) — the measurement page.
+
+  #125's batch reviewer: "the parked cars' headlamps read black at noon — the near-left car's lens core
+  0.024 linear against its bonnet's 0.345". A lens CORE against a BONNET is two statistics on two
+  orientations: at noon the sun stands 75.6 degrees up, so a horizontal bonnet takes sin(75.6) = 0.97 of
+  it and any vertical face at most cos(75.6) = 0.25. The census of photographed lamps
+  (reference/sarasota/lamp-census.json) compares a lamp box's MEDIAN with the same car's own paint
+  facing the same way, below and beside it, in one frame — so this page reads both, and says which is
+  which.
+
+  One car at a time, built through its own pool's module as tools/car-arch.html builds it, under
+  src/sky.js's dome and PMREM, src/daynight.js's sun, shadow and bounce at the preset's numbers, and
+  src/post.js's composite with its AO and exposure. The car is turned, not the light: `front` points
+  its nose at the sun's azimuth (its face sunlit, the census's "white car in sun"), `back` away from
+  it (the face self-shaded, the census's other regime), `side` across it. The camera stands ahead of
+  the nose at a pedestrian's eye, straight on (`view=front`) or 35 degrees round (`view=quarter`).
+
+  Per pixel, a class mask drawn with no AA from the palette slot and the face's own world normal: the
+  headlamp (slot 4), paint facing forward (within 37 degrees of the nose), paint facing up (the
+  bonnet), other paint, glass, wheel, and the rest. Read per lamp, interior pixels only:
+    lamp       p05 / p10 / p50 / p90, the share over twice its median
+    fascia     forward-facing paint beside and below that lamp, as the census boxed it
+    bonnet     the paint facing the sky
+  ?tod=noon  ?cars=traffic,parked,player  ?yaws=front,back,side  ?views=front,quarter  ?tone=0.80
+  ?dist=5  ?eye=1.2  ?ao=1  ?lamps=1  ?housing=albedo,metal,rough  ?w=960&h=540  ?debug=1
+-->
+<style>html,body{margin:0;background:#000}canvas{display:block}</style>
+<script type="module">
+import * as THREE from '../vendor/three.module.min.js';
+import { buildPlayerCar, CAR, setLampDetail, lampDetail, setLampHousing, lampHousing } from '../src/carbody.js';
+import { Vehicle } from '../src/vehicle.js';
+import { TimeOfDay } from '../src/daynight.js';
+import { Sky } from '../src/sky.js';
+import { PostStack } from '../src/post.js';
+import { Traffic } from '../src/traffic.js';
+import { StreetFurniture, LAMP_POOL } from '../src/streetfurniture.js';
+import { measureLamps } from './car-lamp-core.mjs';
+
+const q = new URLSearchParams(location.search);
+const W = Number(q.get('w') ?? 960), H = Number(q.get('h') ?? 540);
+const TOD = q.get('tod') ?? 'noon';
+const carNames = (q.get('cars') ?? 'traffic,parked,player').split(',').filter(Boolean);
+const yawNames = (q.get('yaws') ?? 'front,back,side').split(',').filter(Boolean);
+const viewNames = (q.get('views') ?? 'front,quarter').split(',').filter(Boolean);
+const TONE = Number(q.get('tone') ?? 0.80);   // a white car's paint, linear (src/carpaint.js)
+const DIST = Number(q.get('dist') ?? 5), EYE = Number(q.get('eye') ?? 1.2);
+const AO = q.get('ao') !== '0';
+const LAMPS = q.get('lamps') === null ? null : Number(q.get('lamps'));
+const YAWS = { front: 0, back: Math.PI, side: Math.PI / 2 };
+const VIEWS = { front: 0, quarter: 35 * Math.PI / 180 };
+
+const out = { tod: TOD, size: [W, H], tone: TONE, dist: DIST, eye: EYE, ao: AO, runs: [], ms: {} };
+const T0 = performance.now();
+try {
+  for (const y of yawNames) if (!(y in YAWS)) throw new Error(`unknown yaw ${y}`);
+  for (const v of viewNames) if (!(v in VIEWS)) throw new Error(`unknown view ${v}`);
+  if (LAMPS !== null) setLampDetail(LAMPS);
+  out.lampDetail = lampDetail().value;
+  // ?housing=albedo,metal,rough: the housing's finish lever (#143), on. Read back, so the report says what
+  // the material was handed rather than what the URL asked for.
+  if (q.get('housing')) {
+    const [albedo, metal, rough] = q.get('housing').split(',').map(Number);
+    if (![albedo, metal, rough].every(Number.isFinite)) throw new Error(`bad housing ${q.get('housing')}`);
+    setLampHousing({ albedo, metal, rough, on: 1 });
+  }
+  out.housing = lampHousing();
+
+  const renderer = new THREE.WebGLRenderer({ antialias: false, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(1);
+  renderer.setSize(W, H);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  document.body.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(28, W / H, 0.2, 1400);
+  const sky = new Sky(renderer, scene);
+  sky.freezeCloudDrift(0);
+  const tod = new TimeOfDay(scene, renderer);
+  const post = new PostStack(renderer, scene, camera);
+  post.setSize(W, H);
+  tod.attachPost(post);
+  tod.setSky(sky, null);
+  tod.apply(TOD);
+  tod.follow(new THREE.Vector3(0, 0, 0));
+
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 400),
+    new THREE.MeshStandardMaterial({ color: 0x5a5a58, roughness: 0.95 }));
+  ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  const district = await (await fetch('../data/district.json')).json();
+  const sink = { add() {} };
+  const traffic = new Traffic(sink, district, { count: 30, seed: 0 });
+  const tMesh = traffic.meshes.find((m) => m.name === 'trafficCar:coupe') ?? traffic.meshes[0];
+  const furniture = new StreetFurniture(new THREE.Scene(), { max: LAMP_POOL });
+  furniture.buildParkedCars({ count: 30 });
+  const pMesh = furniture.parked.meshes[0];
+
+  const TRAFFIC_Y = -0.02, PARKED_Y = 0.05;
+  const resting = new Vehicle();
+  for (const w of resting.wheels) w.suspLen = -0.10 - CAR.ground - resting.wheelRadius;
+  const sunDir = tod.sunDirection();
+  const sunAz = Math.atan2(sunDir.x, sunDir.z);   // the yaw that points +z (the nose) at the sun
+  out.sun = { dir: sunDir.toArray().map((x) => +x.toFixed(4)), elevationDeg: +(Math.asin(sunDir.y) * 180 / Math.PI).toFixed(2) };
+
+  // THE LAMP'S OWN TILT, off each car's buffer: the area-weighted elevation of its forward-facing headlamp
+  // faces. The fleet's lamps sit on the sloped nose at about 49 degrees, the bumper under them is near
+  // vertical, and at noon those are two different skies; the census's "paint beside it facing the same
+  // way" is the nose paint at the lamp's own tilt, which the mask finds against this number.
+  const lampTilt = (geo) => {
+    const g = geo.index ? geo.toNonIndexed() : geo;
+    const pos = g.getAttribute('position'), uv = g.getAttribute('uv');
+    const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), n = new THREE.Vector3();
+    let area = 0, ny = 0;
+    for (let t = 0; t < pos.count; t += 3) {
+      if (![0, 1, 2].every((k) => Math.floor(uv.getX(t + k) * 16) === 4)) continue;
+      a.fromBufferAttribute(pos, t); b.fromBufferAttribute(pos, t + 1); c.fromBufferAttribute(pos, t + 2);
+      n.crossVectors(b.clone().sub(a), c.clone().sub(a));
+      const ar = n.length() / 2; n.normalize();
+      if (n.z < 0.5) continue;
+      area += ar; ny += n.y * ar;
+    }
+    return area > 0 ? Math.asin(ny / area) : null;
+  };
+  out.lampTiltDeg = {};
+  const buildCar = (name, yaw) => {
+    const R = new THREE.Matrix4().makeRotationY(yaw);
+    if (name === 'player') {
+      const pc = buildPlayerCar({});
+      const s = Math.round(255 * (TONE <= 0.0031308 ? 12.92 * TONE : 1.055 * TONE ** (1 / 2.4) - 0.055));
+      pc.setPaint((s << 16) | (s << 8) | s);
+      pc.group.position.set(0, -CAR.ground - 0.02, 0);
+      pc.group.rotation.y = yaw;
+      pc.updateWheels(resting);
+      pc.group.updateMatrixWorld(true);
+      return { obj: pc.group, player: pc, tilt: lampTilt(pc.bodyMesh.geometry) };
+    }
+    const mesh = name === 'traffic' ? tMesh : pMesh;
+    const m = new THREE.InstancedMesh(mesh.geometry, mesh.material, 1);
+    m.setMatrixAt(0, new THREE.Matrix4().makeTranslation(0, name === 'traffic' ? TRAFFIC_Y : PARKED_Y, 0).multiply(R));
+    m.setColorAt(0, new THREE.Color(TONE, TONE, TONE));
+    m.castShadow = true;
+    m.frustumCulled = false;
+    return { obj: m, tilt: lampTilt(mesh.geometry) };
+  };
+
+  // THE MASK. Red is the class; green is |n . nose| and blue n.y, both 0-1, for the record.
+  const uNose = { value: new THREE.Vector3(0, 0, 1) };
+  const uLampN = { value: new THREE.Vector3(0, 0, 1) };
+  const maskMat = new THREE.ShaderMaterial({
+    uniforms: { uNose, uLampN },
+    vertexShader: `varying float vU; varying vec3 vW;
+      void main() {
+        vU = uv.x;
+        vec4 w = vec4( position, 1.0 );
+        #ifdef USE_INSTANCING
+          w = instanceMatrix * w;
+        #endif
+        w = modelMatrix * w;
+        vW = w.xyz;
+        gl_Position = projectionMatrix * viewMatrix * w;
+      }`,
+    fragmentShader: `uniform vec3 uNose; uniform vec3 uLampN; varying float vU; varying vec3 vW;
+      void main() {
+        float s = floor( vU * 16.0 );
+        vec3 n = normalize( cross( dFdx( vW ), dFdy( vW ) ) );
+        float fwd = dot( n, uNose );
+        float c = 200.0;
+        if ( s == 8.0 || s == 9.0 || s == 13.0 ) c = 40.0;
+        else if ( s == 10.0 ) c = 80.0;
+        else if ( s == 4.0 ) c = 100.0;
+        else if ( s == 5.0 || s == 6.0 ) c = 110.0;
+        else if ( s == 0.0 ) c = dot( n, uLampN ) >= 0.96 ? 150.0 : ( abs( fwd ) >= 0.8 ? 140.0 : ( abs( n.y ) >= 0.6 ? 160.0 : 180.0 ) );
+        gl_FragColor = vec4( c / 255.0, abs( fwd ), abs( n.y ), 1.0 );
+      }`,
+  });
+  const maskScene = new THREE.Scene();
+  maskScene.background = new THREE.Color(0, 0, 0);
+
+  const gl = renderer.getContext();
+  const grab = () => {
+    const px = new Uint8Array(W * H * 4);
+    gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    const o = new Uint8Array(W * H * 3);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const s = ((H - 1 - y) * W + x) * 4, d = (y * W + x) * 3;
+      o[d] = px[s]; o[d + 1] = px[s + 1]; o[d + 2] = px[s + 2];
+    }
+    return o;
+  };
+  const frames = {};
+  for (const carName of carNames) for (const yawName of yawNames) for (const viewName of viewNames) {
+    const yaw = sunAz + YAWS[yawName];
+    const car = buildCar(carName, yaw);
+    scene.add(car.obj);
+    const nose = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+    uNose.value.copy(nose);
+    if (!Number.isFinite(car.tilt)) throw new Error(`no headlamp faces on ${carName}`);
+    out.lampTiltDeg[carName] = +(car.tilt * 180 / Math.PI).toFixed(2);
+    uLampN.value.copy(nose).multiplyScalar(Math.cos(car.tilt)).add(new THREE.Vector3(0, Math.sin(car.tilt), 0)).normalize();
+    let mobj, mg = null;
+    if (car.player) {
+      mobj = new THREE.Mesh(car.player.bodyMesh.geometry, maskMat);
+      mobj.position.copy(car.obj.position); mobj.rotation.copy(car.obj.rotation);
+      mg = new THREE.Mesh(car.player.glassMesh.geometry, new THREE.ShaderMaterial({
+        vertexShader: 'void main() { gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 ); }',
+        fragmentShader: 'void main() { gl_FragColor = vec4( 80.0 / 255.0, 0.0, 0.0, 1.0 ); }' }));
+      mg.position.copy(car.obj.position); mg.rotation.copy(car.obj.rotation);
+      maskScene.add(mg);
+    } else {
+      mobj = new THREE.InstancedMesh(car.obj.geometry, maskMat, 1);
+      mobj.instanceMatrix = car.obj.instanceMatrix;
+      mobj.frustumCulled = false;
+    }
+    maskScene.add(mobj);
+    // Ahead of the nose, at a pedestrian's eye, aimed at the lamps' height on the nose.
+    const a = yaw + VIEWS[viewName];
+    const tip = nose.clone().multiplyScalar(2.15);
+    camera.position.set(tip.x + Math.sin(a) * DIST, EYE, tip.z + Math.cos(a) * DIST);
+    camera.lookAt(tip.x, 0.80, tip.z);
+    camera.updateMatrixWorld(true);
+    sky.updateView(camera);
+    post.params.aoEnabled = AO;
+    post.enabled = true;
+    post.render();
+    const rgb = grab();
+    renderer.setRenderTarget(null);
+    renderer.setClearColor(0x000000, 1);
+    renderer.clear();
+    renderer.render(maskScene, camera);
+    const mask = grab();
+    // The car's centreline at lamp height, on screen: the two lamps either side of it.
+    const c = tip.clone(); c.y = 0.83; c.project(camera);
+    const splitX = (c.x + 1) / 2 * W;
+    out.runs.push({ car: carName, yaw: yawName, view: viewName, ...measureLamps(rgb, mask, W, H, splitX) });
+    if (q.get('debug') === '1') {
+      const b64 = (u8) => { let s = ''; for (let i = 0; i < u8.length; i += 8192) s += String.fromCharCode(...u8.subarray(i, i + 8192)); return btoa(s); };
+      frames[`${carName}-${yawName}-${viewName}`] = { rgb: b64(rgb), mask: b64(mask) };
+    }
+    scene.remove(car.obj);
+    maskScene.remove(mobj);
+    if (mg) maskScene.remove(mg);
+  }
+  out.light = { exposure: post.params.exposure, aoStrength: post.params.aoStrength, preset: tod.presetName,
+    sun: tod.sun.intensity, envIntensity: scene.environmentIntensity };
+  out.ms.total = Math.round(performance.now() - T0);
+  window.__carLamp = out;
+  if (q.get('debug') === '1') window.__carLampFrames = frames;
+} catch (e) {
+  window.__carLamp = { error: String(e && e.stack || e) };
+}
+</script>

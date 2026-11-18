@@ -58,6 +58,21 @@
 //   4. COVERAGE.  The duty of each zone -- what fraction of a stamp survives --
 //                 because a mask that cuts 80% of every plate is a skeleton and
 //                 the frame is the last place you want to discover that.
+//   5. SPLIT.     #145 draws every triangle that touches a cut zone with a
+//                 second material, alpha to coverage, welded into the same
+//                 bucket mesh (src/streetfurniture.js weldBucket), and leaves
+//                 everything else on the shared one. So 3b's statement -- "a
+//                 prop sampling alpha 1.0 draws exactly the pixels it drew
+//                 before the stencil existed" -- is now a statement about the
+//                 shared material, and it only holds if the split puts every
+//                 such prop there. Checked off THIS file's texture sampler, not
+//                 the module's zone rule: a triangle with a vertex that samples
+//                 a cut texel must be in the coverage group (or it is a hard
+//                 edge the fix left behind), and a triangle in the opaque group
+//                 must sample the opaque guard at every vertex (or a leaf is
+//                 being alpha-tested, and a lens could lose #114's tag the other
+//                 way round). Every one of the non-tree kinds must come out
+//                 entirely opaque.
 //
 //   node tools/leaf-mask.mjs
 //   node tools/leaf-mask.mjs --png     also writes docs/shots/tree3-mask.png
@@ -239,6 +254,43 @@ const zones = [
 ];
 console.log('4. COVERAGE fraction of each zone the stencil KEEPS (1 - duty)');
 for (const [name, a, b] of zones) console.log(`     ${name.padEnd(12)} ${duty(a, b).toFixed(3)}`);
+
+// ---- 5. the split (#145): which material each triangle is drawn with
+{
+  const f = K.frame(118, -170, 0, 1, -1, 0);
+  let treeTris = 0, cutTris = 0, leftHard = 0, opaqueCut = 0, otherCut = 0, otherTris = 0;
+  const cutsAt = (uv, i) => sample(uv[i * 2], uv[i * 2 + 1]) < 0.999;
+  const inZone = (uv, i) => zoneOf(uv[i * 2 + 1]) !== null;
+  const audit = (buf, isTree) => {
+    const { idx, nOpaque } = K.splitCutZones(buf.idx, buf.uv);
+    for (let t = 0; t < idx.length / 3; t++) {
+      const v = [idx[t * 3], idx[t * 3 + 1], idx[t * 3 + 2]];
+      const inCoverage = t >= nOpaque;
+      const samplesCut = v.some((i) => cutsAt(buf.uv, i));
+      if (isTree) { treeTris++; if (inCoverage) cutTris++; } else { otherTris++; if (inCoverage) otherCut++; }
+      if (samplesCut && !inCoverage) leftHard++;
+      if (!inCoverage && v.some((i) => inZone(buf.uv, i) || cutsAt(buf.uv, i))) opaqueCut++;
+    }
+  };
+  for (let k = 0; k < 240; k++) {
+    const key = k * 977 + 13;
+    const buf = K.newBuf();
+    K.props.tree(buf, f, key);
+    K.props.treeDetail(buf, f, key);
+    audit(buf, true);
+  }
+  const g = K.frame(20, 20, 0, 1, -1, 0);
+  for (const [kind, fn] of Object.entries(K.props)) {
+    if (kind === 'tree' || kind === 'treeDetail') continue;
+    for (let k = 0; k < 24; k++) { const buf = K.newBuf(); fn(buf, g, k * 313 + 7); audit(buf, false); }
+  }
+  check(cutTris > 0 && leftHard === 0,
+    `split: ${leftHard} triangles that sample a cut texel are drawn by the shared material (an alpha-tested edge left behind)`);
+  check(opaqueCut === 0, `split: ${opaqueCut} triangles in the opaque group address a cut zone`);
+  check(otherTris > 0 && otherCut === 0, `split: ${otherCut} of ${otherTris} non-tree triangles went to the coverage material`);
+  console.log(`5. SPLIT    trees: ${cutTris} of ${treeTris} triangles drawn with coverage, ${leftHard} cut-sampling ones left `
+    + `on the shared material; other kinds: ${otherCut} of ${otherTris} moved`);
+}
 
 if (has('png')) {
   const w = MASK_K * 4, h = AH;

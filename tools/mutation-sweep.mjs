@@ -213,6 +213,10 @@ const OFFLINE = [
   // ever been swept: `wheel-octagon` came back MISSED against a check written to catch it.
   'car-shapes',
   'car-shapes --selftest',
+  // Milliseconds, offline: #143's probe (tools/car-lamp.html) measures a headlamp against paint at its
+  // own tilt, and its selftest is the proof the box, the interior rule and the stride are what they say.
+  // It reads no src/ module, so it catches no row; it is here for the reason shadow-bias's is.
+  'car-lamp --selftest',
   // About 4 s, a purpose-built page: the real Sky at the night preset through the real PostStack
   // (#124). The star field is GLSL in the sky dome, and nothing else on this list draws a star.
   'star-strokes',
@@ -256,6 +260,15 @@ const OFFLINE = [
   // globe-level and globe-round light their own lamp whatever the hour, and boot-check sees the page's side.
   'photocell',
   'photocell --selftest',
+  // #145's page, a few seconds: one live oak and a bench welded into one bucket by the module's own
+  // weldBucket, through the real PostStack at 4 samples, arm by arm. Nothing else on this list renders a
+  // leaf: leaf-mask reads the stencil and the split off the buffers, and every row below that changes
+  // what the coverage material DRAWS — its ramp, its depth material, the bark rim — is invisible to it.
+  'leaf-cover',
+  'leaf-cover --selftest',
+  // Milliseconds: #145's edge statistic on synthetic canopies, the instrument the reviewers' numbers
+  // and leaf-cover's both go through.
+  'leaf-edge --selftest',
 ];
 
 /**
@@ -532,6 +545,27 @@ const MUTATIONS = [
     to: '      t *= 1;',
     why: 'reverse has no speed ceiling',
   },
+  {
+    /**
+     * TAKES THE REST HOLD AWAY. Nothing errors and every drive is untouched — the hold acts only
+     * under 2 cm/s with no throttle — so what comes back is a parked car crawling 4.9 mm/s (9.4 at
+     * a 60 Hz step), and with it the sun's shadow box walking under a still scene.
+     */
+    id: 'rest-hold-off', file: 'src/vehicle.js',
+    find: '    this.restHoldMs = REST_HOLD_MS;',
+    to: '    this.restHoldMs = 0;',
+    why: 'a parked car crawls half a metre every two minutes',
+  },
+  {
+    /**
+     * THE HOLD IGNORES THE THROTTLE, so a car at rest can never pull away: every step starts under
+     * 2 cm/s and is cleared. The release is the half of the rule a hold that "works" can lose.
+     */
+    id: 'rest-hold-throttle', file: 'src/vehicle.js',
+    find: '    if (groundedWheels === this.wheels.length && this.throttle === 0',
+    to: '    if (groundedWheels === this.wheels.length && true',
+    why: 'a parked car cannot be driven off',
+  },
   // ---- src/hud.js
   {
     /**
@@ -592,9 +626,35 @@ const MUTATIONS = [
      * to explain where the band's verb comes from. A `find` that a COMMENT can satisfy is one
      * explanatory sentence away from mutating nothing, or from mutating the comment.
      */
-    find: 'if (throttle !== 0 && Math.sign(throttle) * dot > 0) throttle = 0;',
-    to: 'if (throttle !== 0 && true) throttle = 0;',
+    // Repointed by the rest hold's round: the refusal reads the band's two predicates now
+    // (FENCE_TANGENT), so the row refuses both directions of throttle whatever they say.
+    find: '  if ((throttle > 0 && noseOut) || (throttle < 0 && noseIn)) throttle = 0;',
+    to: '  if (throttle !== 0) throttle = 0;',
     why: 'the world fence refuses power in both directions and strands the car outside',
+  },
+  {
+    /**
+     * THE TANGENT BACK TO A POINT. A settled car's own pitch and roll swing its nose a few 1e-8 off
+     * the heading it was placed at, so with `dot > 0` a car parked exactly along the fence reads as
+     * pointing out, forward is refused, the rest hold keeps it still, and it never gets moving: the
+     * six tours that start at rest on the tangent read an arc of 0 m. It was hidden for as long as
+     * a parked car crept, because the creep turned the nose a hair inward within seconds.
+     */
+    id: 'fence-tangent-point', file: 'src/blockers.js',
+    find: '  const noseOut = dot > FENCE_TANGENT, noseIn = dot < -FENCE_TANGENT;',
+    to: '  const noseOut = dot > 0, noseIn = dot < 0;',
+    why: 'a car parked along the world fence can never drive off it',
+  },
+  {
+    /**
+     * THE BAND SIZED OFF THE QUATERNION'S NOISE, which is the first version of it: 1e-9 is five
+     * million times the 6.1e-17 a nose built exactly tangential reads, and 1/50 of the 5e-8 the
+     * suspension swings it by, so it holds the wrong noise and the tours still read 0 m.
+     */
+    id: 'fence-tangent-quat', file: 'src/blockers.js',
+    find: 'export const FENCE_TANGENT = 1e-6;',
+    to: 'export const FENCE_TANGENT = 1e-9;',
+    why: 'the tangent band is narrower than a parked car\'s own nose swing',
   },
   // ---- src/roadpath.js
   {
@@ -2985,6 +3045,15 @@ const MUTATIONS = [
     why: 'every caster re-rasterises at a new sub-texel phase each frame the car moves: the canopy shade crawls',
   },
   {
+    // #124: the box's depth axis left exact, as it shipped before. Behaviour-preserving in exact
+    // arithmetic, which is why the phase check cannot see it; only the drift check, which walks a
+    // viewer a millimetre at a time along the light, counts the box moving.
+    id: 'shadow-depth-exact', file: 'src/daynight.js',
+    find: '    const dt = Math.round(t / texel) * texel - t;',
+    to: '    const dt = 0;',
+    why: 'a parked car crawling along the light moves the shadow box every frame and re-rounds every contact edge: the cornice shimmer',
+  },
+  {
     id: 'shadow-world-axes', file: 'src/daynight.js',
     find: '    if (c > 1e-6) _sunAxisX.set(d.z / c, 0, -d.x / c); else _sunAxisX.set(1, 0, 0);',
     to: '    _sunAxisX.set(1, 0, 0);',
@@ -3143,8 +3212,10 @@ const MUTATIONS = [
   },
   {
     id: 'bloom-share-inverted', file: 'src/post.js',
-    find: '  float share = -s.a - 1.0;',
-    to: '  float share = s.a + 2.0;',
+    // Repointed by intent when #145 put the covered leaf's tag in front of the same decode: the share
+    // still reads upside down, and the leaf's branch is left alone (bright-lit-tag-off is that one).
+    find: '  float share = abs( s.a - ${COVERAGE_LIT_TAG.toFixed(1)} ) <= 0.01 ? 0.0 : -s.a - 1.0;',
+    to: '  float share = abs( s.a - ${COVERAGE_LIT_TAG.toFixed(1)} ) <= 0.01 ? 0.0 : s.a + 2.0;',
     why: 'the share read upside down: emitters lose their bloom and lit surfaces keep it',
   },
   {
@@ -3394,8 +3465,9 @@ const MUTATIONS = [
   //      matrices; route-drive drives among the posts.
   {
     id: 'lamp-yaw-along', file: 'src/streetfurniture.js',
-    find: '        const yaw = Math.atan2(c.nz * side, -c.nx * side);',
-    to: '        const yaw = Math.atan2(-c.nx * side, -c.nz * side);',
+    // Repointed by #148: the yaw is decided in the station search now, where the globe test reads it.
+    find: '            const yaw = Math.atan2(c.nz * side, -c.nx * side);',
+    to: '            const yaw = Math.atan2(-c.nx * side, -c.nz * side);',
     why: '#135 back: the recorded yaw, which runs every arm along the street and hangs the emitter 2.2 m along the pavement',
   },
   {
@@ -3451,6 +3523,18 @@ const MUTATIONS = [
     find: '            if (lat * side > 0 && lat * side <= line + 3 && Math.abs(along) < spacing / 2) return true;',
     to: '            if (lat * side > 0 && lat * side <= line + 3 && false) return true;',
     why: 'every edge anchors its own ends beside its neighbour\'s: 211 more lamps, 85 pairs under 3 m apart at the junctions',
+  },
+  {
+    /**
+     * #148: THE PLACER STOPS ASKING ABOUT THE GLOBES. Every post still stands where it may, so every
+     * post-shaped check holds; what comes back is the fixture's pavement-side globe in a building on a
+     * narrow pavement — 23 of 1,228 lamps, 9 buried and 14 half out of a facade. kerb-stand's
+     * `globesInWalls` counts it from the footprints with its own predicate.
+     */
+    id: 'lamp-globe-walls', file: 'src/streetfurniture.js',
+    find: '            if (LAMP_GLOBES.some((G) => this.buildingClearance(kb.x + Math.cos(yaw) * G.x,',
+    to: '            if (false && LAMP_GLOBES.some((G) => this.buildingClearance(kb.x + Math.cos(yaw) * G.x,',
+    why: 'a lamp\'s pavement-side globe stands in the building behind a narrow pavement',
   },
   {
     /**
@@ -3685,6 +3769,79 @@ const MUTATIONS = [
     to: '  carContact.setLit(tod.streetLampsOn);\n',
     why: 'the footprint switched with the street lamps: at dusk the road under every car is lit by the sky the floor pan blocks',
     browser: true,
+  },
+  // ---- #145: the stencil's cut zones drawn with alpha to coverage, on their own material.
+  {
+    id: 'fol-a2c-off', file: 'src/streetfurniture.js',
+    find: "  m.alphaToCoverage = mode !== 'test';",
+    to: '  m.alphaToCoverage = false;',
+    why: 'the coverage never engages: every cut edge is a step again, while the mode the material reads back still says centred',
+  },
+  {
+    id: 'fol-uncentred', file: 'src/streetfurniture.js',
+    find: '\t\tdiffuseColor.a = clamp( ( diffuseColor.a - alphaTest ) / max( fwidth( diffuseColor.a ), 1e-4 ) + 0.5, 0.0, 1.0 );',
+    to: '\t\tdiffuseColor.a = smoothstep( alphaTest, alphaTest + fwidth( diffuseColor.a ), diffuseColor.a );',
+    why: "three's own ramp shipped, 0 AT the test: every cut edge half a pixel in and a tenth of the crown gone",
+  },
+  {
+    id: 'fol-depth-off', file: 'src/streetfurniture.js',
+    find: '  if (cut > 0) mesh.customDepthMaterial = foliageDepthMaterial();',
+    to: '',
+    why: "three's own depth material for the coverage buckets, which it cuts at a forced 0.5: every tree's shadow thinner",
+  },
+  {
+    id: 'fol-depth-uniform', file: 'src/streetfurniture.js',
+    find: 'if ( diffuseColor.a < ${ALPHA_TEST.toFixed(6)} ) discard;',
+    to: 'if ( diffuseColor.a < alphaTest ) discard;',
+    why: 'the custom depth material kept and its literal dropped: it reads the uniform three sets to 0.5 for a coverage material',
+    inert: "MEASURED INERT AT 5d5fef1: swept alone it was caught by nothing, and leaf-cover's sun map stayed byte-identical "
+      + "(0 texels). three does write alphaTest onto a CUSTOM depth material on every draw (getDepthMaterial in the vendored "
+      + "bundle: 0.5 for the coverage group, 0.42 for the opaque one), and, read off the renderer rather than measured, "
+      + "refreshes a material's uniforms only when the material changes; each bucket draws its opaque group first, so the "
+      + "cut group inherits 0.42. The literal stays because it does not lean on that draw order: a bucket with no opaque "
+      + "triangles, or a three that refreshes per draw, would cut the shadow at 0.5 (5,022 texels under one oak, depth05).",
+  },
+  {
+    id: 'fol-split-none', file: 'src/streetfurniture.js',
+    find: '    (t ? cut : keep).push(a, b, c);',
+    to: '    keep.push(a, b, c);',
+    why: 'every triangle on the shared material: no bucket draws the coverage, and every leaf edge is a step',
+  },
+  {
+    id: 'fol-split-all', file: 'src/streetfurniture.js',
+    find: '    (t ? cut : keep).push(a, b, c);',
+    to: '    cut.push(a, b, c);',
+    why: "every triangle on the coverage material, which is not OPAQUE: the bench, the poles and the signal lenses lose #114's tag",
+  },
+  {
+    id: 'fol-zone-bark', file: 'src/streetfurniture.js',
+    find: '  [SABAL_V0, SABAL_V0 + COMB_H], [BARK_V0, BARK_V0 + BARK_H],',
+    to: '  [SABAL_V0, SABAL_V0 + COMB_H],',
+    why: 'the bark zone left out of the cut zones: every limb alpha-tested on the shared material, a step at its edge and the lattice back in its trunk',
+  },
+  {
+    id: 'bark-rim-off', file: 'src/streetfurniture.js',
+    find: "function foliageMaterial(base, mode = 'centred', rim = true) {",
+    to: "function foliageMaterial(base, mode = 'centred', rim = false) {",
+    why: 'the rim off by default: every trunk and limb a lattice with the background showing through, as before #145',
+  },
+  {
+    id: 'bark-rim-column', file: 'src/streetfurniture.js',
+    find: '\tif ( floor( vAlphaMapUv.x * ${PAL_W}.0 ) == ${S.bark}.0 ) {',
+    to: '\tif ( floor( vAlphaMapUv.x * ${PAL_W}.0 ) == ${S.foliage}.0 ) {',
+    why: "the rim on the leaves' column: the crown's holes close where it faces the camera and the trunk stays a lattice",
+  },
+  {
+    id: 'fol-lit-tag-off', file: 'src/streetfurniture.js',
+    find: '\tif ( gl_FragColor.a >= 1.0 ) gl_FragColor.a = ${COVERAGE_LIT_TAG.toFixed(1)};',
+    to: '\t// the covered leaf keeps its coverage as its alpha',
+    why: "a fully covered leaf keeps a bare 1, which the bright pass reads as UNTAGGED: at night the crowns are held to the emitter's bar, 0.118 where the lit bar is 1.331, and bloom; nothing in a daylight frame moves",
+  },
+  {
+    id: 'bright-lit-tag-off', file: 'src/post.js',
+    find: '  float share = abs( s.a - ${COVERAGE_LIT_TAG.toFixed(1)} ) <= 0.01 ? 0.0 : -s.a - 1.0;',
+    to: '  float share = -s.a - 1.0;',
+    why: "the leaves carry their tag and the bright pass no longer reads it: the same night bloom as fol-lit-tag-off, with every alpha in the scene target still exactly what the gate's tag census expects",
   },
 ];
 
